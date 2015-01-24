@@ -1,18 +1,11 @@
-/* <http://wiki.osdev.org/Bare_Bones>*/
-#if !defined(__cplusplus)
-#include <stdbool.h> /* C doesn't have booleans by default. */
-#endif
+/*Originally from: <http://wiki.osdev.org/Bare_Bones>*/
+#include <stdbool.h> 
 #include <stddef.h>
 #include <stdint.h>
  
-/* Check if the compiler thinks if we are targeting the wrong operating system. */
-#if defined(__linux__)
-#error "You are not using a cross-compiler, you will most certainly run into trouble"
-#endif
- 
 /* This tutorial will only work for the 32-bit ix86 targets. */
-#if !defined(__i386__)
-#error "This tutorial needs to be compiled with a ix86-elf compiler"
+#if !defined(__i386__) || defined(__linux__)
+#error "This kernel needs to be cross compiled compiled with a ix86-elf compiler"
 #endif
  
 /* Hardware text mode color constants. */
@@ -38,26 +31,26 @@ enum vga_color
  
 uint8_t make_color(enum vga_color fg, enum vga_color bg)
 {
-	return fg | bg << 4;
+	return fg | (bg << 4u);
 }
  
 uint16_t make_vgaentry(char c, uint8_t color)
 {
 	uint16_t c16 = c;
 	uint16_t color16 = color;
-	return c16 | color16 << 8;
+	return c16 | (color16 << 8u);
 }
  
 size_t strlen(const char* str)
 {
-	size_t ret = 0;
-	while ( str[ret] != 0 )
+	size_t ret = 0u;
+	while ( str[ret] != 0u )
 		ret++;
 	return ret;
 }
  
-static const size_t VGA_WIDTH = 80;
-static const size_t VGA_HEIGHT = 25;
+static const size_t VGA_WIDTH = 80u;
+static const size_t VGA_HEIGHT = 25u;
  
 size_t terminal_row;
 size_t terminal_column;
@@ -66,14 +59,12 @@ uint16_t* terminal_buffer;
  
 void terminal_initialize()
 {
-	terminal_row = 0;
-	terminal_column = 0;
-	terminal_color = make_color(COLOR_LIGHT_GREY, COLOR_BLACK);
-	terminal_buffer = (uint16_t*) 0xB8000;
-	for ( size_t y = 0; y < VGA_HEIGHT; y++ )
-	{
-		for ( size_t x = 0; x < VGA_WIDTH; x++ )
-		{
+	terminal_row    = 0u;
+	terminal_column = 0u;
+	terminal_color  = make_color(COLOR_LIGHT_GREY, COLOR_BLACK);
+	terminal_buffer = (uint16_t*) 0xB8000u;
+	for(size_t y = 0u; y < VGA_HEIGHT; y++){
+		for(size_t x = 0u; x < VGA_WIDTH; x++){
 			const size_t index = y * VGA_WIDTH + x;
 			terminal_buffer[index] = make_vgaentry(' ', terminal_color);
 		}
@@ -94,26 +85,20 @@ void terminal_putentryat(char c, uint8_t color, size_t x, size_t y)
 void terminal_putchar(char c)
 {
 	terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
-	if ( ++terminal_column == VGA_WIDTH )
-	{
-		terminal_column = 0;
-		if ( ++terminal_row == VGA_HEIGHT )
-		{
-			terminal_row = 0;
-		}
+	if (VGA_WIDTH == ++terminal_column){
+		terminal_column = 0u;
+		if (VGA_WIDTH ==  ++terminal_row)
+			terminal_row = 0u;
 	}
 }
  
 void terminal_writestring(const char* data)
 {
 	size_t datalen = strlen(data);
-	for ( size_t i = 0; i < datalen; i++ )
+	for(size_t i = 0; i < datalen; i++)
 		terminal_putchar(data[i]);
 }
  
-#if defined(__cplusplus)
-extern "C" /* Use C linkage for kernel_main. */
-#endif
 void kernel_main()
 {
 	terminal_initialize();
