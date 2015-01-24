@@ -20,8 +20,12 @@ myos.iso: myos.bin
 	cp grub.cfg isodir/boot/grub/grub.cfg
 	grub-mkrescue -o myos.iso isodir
 
+#incase grub-mkrescue did not work
 #run: myos.bin
 #	$(QEMU) -kernel $<
+
+run: myos.iso
+	$(QEMU) -cdrom $<
 
 clean:
 	rm -f *.o *.bin *.iso isodir/boot/*.bin isodir/boot/grub/*.cfg
