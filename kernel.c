@@ -2,8 +2,9 @@
 #include <stdbool.h> 
 #include <stddef.h>
 #include <stdint.h>
+#include "kstring.h"
  
-/* This tutorial will only work for the 32-bit ix86 targets. */
+/* This tutorial will only work for the 32-bit ix86 targets. Cross compiled */
 #if !defined(__i386__) || defined(__linux__)
 #error "This kernel needs to be cross compiled compiled with a ix86-elf compiler"
 #endif
@@ -11,22 +12,22 @@
 /* Hardware text mode color constants. */
 enum vga_color
 {
-	COLOR_BLACK = 0,
-	COLOR_BLUE = 1,
-	COLOR_GREEN = 2,
-	COLOR_CYAN = 3,
-	COLOR_RED = 4,
-	COLOR_MAGENTA = 5,
-	COLOR_BROWN = 6,
-	COLOR_LIGHT_GREY = 7,
-	COLOR_DARK_GREY = 8,
-	COLOR_LIGHT_BLUE = 9,
-	COLOR_LIGHT_GREEN = 10,
-	COLOR_LIGHT_CYAN = 11,
-	COLOR_LIGHT_RED = 12,
-	COLOR_LIGHT_MAGENTA = 13,
-	COLOR_LIGHT_BROWN = 14,
-	COLOR_WHITE = 15,
+	COLOR_BLACK = 0u,
+	COLOR_BLUE = 1u,
+	COLOR_GREEN = 2u,
+	COLOR_CYAN = 3u,
+	COLOR_RED = 4u,
+	COLOR_MAGENTA = 5u,
+	COLOR_BROWN = 6u,
+	COLOR_LIGHT_GREY = 7u,
+	COLOR_DARK_GREY = 8u,
+	COLOR_LIGHT_BLUE = 9u,
+	COLOR_LIGHT_GREEN = 10u,
+	COLOR_LIGHT_CYAN = 11u,
+	COLOR_LIGHT_RED = 12u,
+	COLOR_LIGHT_MAGENTA = 13u,
+	COLOR_LIGHT_BROWN = 14u,
+	COLOR_WHITE = 15u
 };
  
 uint8_t make_color(enum vga_color fg, enum vga_color bg)
@@ -40,15 +41,7 @@ uint16_t make_vgaentry(char c, uint8_t color)
 	uint16_t color16 = color;
 	return c16 | (color16 << 8u);
 }
- 
-size_t strlen(const char* str)
-{
-	size_t ret = 0u;
-	while ( str[ret] != 0u )
-		ret++;
-	return ret;
-}
- 
+
 static const size_t VGA_WIDTH = 80u;
 static const size_t VGA_HEIGHT = 25u;
  
@@ -94,7 +87,7 @@ void terminal_putchar(char c)
  
 void terminal_writestring(const char* data)
 {
-	size_t datalen = strlen(data);
+	size_t datalen = kstrlen(data);
 	for(size_t i = 0; i < datalen; i++)
 		terminal_putchar(data[i]);
 }
