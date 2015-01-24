@@ -1,0 +1,3 @@
+[submodule "doc/external/xv6"]
+	path = doc/external/xv6
+	url = git://pdos.csail.mit.edu/xv6/xv6.git

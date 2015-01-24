@@ -1,4 +1,4 @@
-/* <http://wiki.osdev.org/Bare_Bones>
+/* <http://wiki.osdev.org/Bare_Bones>*/
 #if !defined(__cplusplus)
 #include <stdbool.h> /* C doesn't have booleans by default. */
 #endif
