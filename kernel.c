@@ -1,8 +1,5 @@
 /*Originally from: <http://wiki.osdev.org/Bare_Bones>*/
-#include <stdbool.h> 
-#include <stddef.h>
-#include <stdint.h>
-#include "kstring.h"
+#include "klib.h"
  
 /* This tutorial will only work for the 32-bit ix86 targets. Cross compiled */
 #if !defined(__i386__) || defined(__linux__)
