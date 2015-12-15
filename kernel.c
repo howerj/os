@@ -7,7 +7,6 @@
 #error "This kernel needs to be cross compiled compiled with a ix86-elf compiler"
 #endif
  
- 
 void kernel_main(void)
 {
         monitor_clear();

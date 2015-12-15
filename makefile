@@ -6,7 +6,7 @@ CFLAGS=-std=gnu99 -ffreestanding -O2 -Wall -Wextra
 
 .PHONY: all clean
 
-all: myos.bin
+all: kernel.bin
 
 boot.o: boot.s
 	$(AS) $< -o $@
@@ -20,24 +20,27 @@ monitor.o: monitor.c monitor.h klib.h
 kernel.o: kernel.c klib.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-myos.bin: kernel.o boot.o klib.o monitor.o linker.ld
-	$(CC) -T linker.ld -o myos.bin -ffreestanding -O2 -nostdlib boot.o kernel.o klib.o monitor.o -lgcc
-
-myos.iso: myos.bin grub.cfg
-	cp myos.bin isodir/boot/myos.bin
-	cp grub.cfg isodir/boot/grub/grub.cfg
-	grub-mkrescue -o myos.iso isodir
+kernel.bin: kernel.o boot.o klib.o monitor.o linker.ld
+	$(CC) -T linker.ld -o $@ -ffreestanding -O2 -nostdlib boot.o kernel.o klib.o monitor.o -lgcc
 
 #incase grub-mkrescue did not work
-#run: myos.bin
+#run: kernel.bin
 #	$(QEMU) -kernel $<
 
 # -boot d == boot from cdrom, for quicker booting
-#run: myos.iso
+#run: kernel.iso
 #	$(QEMU) -cdrom $< -boot d
 
-run: myos.bin
-	$(QEMU) -kernel $< -boot d
+floppy.img: kernel.bin
+	sudo losetup /dev/loop0 floppy.img
+	sudo mount /dev/loop0 /mnt
+	sudo cp myos.bin /mnt/kernel
+	sudo umount /dev/loop0
+	sudo losetup -d /dev/loop0 
+
+run: floppy.img
+	$(QEMU) -fda $< -boot d
+	#$(QEMU) -kernel $< -boot d
 
 clean:
-	rm -f *.o *.bin *.iso isodir/boot/*.bin isodir/boot/grub/*.cfg
+	rm -f *.o *.bin *.iso 
