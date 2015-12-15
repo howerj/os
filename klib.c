@@ -74,3 +74,34 @@ void* kmemmove(void *dst, const void *src, size_t n){
 			d[i-1] = s[i-1];
 	return dst;
 }
+
+char *kreverse(char *s, size_t len) {
+        char c;
+        size_t i = 0;
+        do {
+                c = s[i];
+                s[i] = s[len - i];
+                s[len - i] = c;
+        } while(i++ < (len / 2));
+        return s;
+}
+
+void outb(uint16_t port, uint8_t value)
+{
+        asm volatile("outb %1, %0" : : "dN" (port), "a" (value));
+}
+
+uint8_t inb(uint16_t port)
+{
+        uint8_t r;
+        asm volatile("inb %1, %0" : "=a" (r): "dN" (port));
+        return r;
+}
+
+uint16_t inw(uint16_t port)
+{
+        uint16_t r;
+        asm volatile("inw %1, %0" : "=a" (r): "dN" (port));
+        return r;
+}
+
