@@ -17,7 +17,8 @@ boot.o: boot.s
 %.o: %.s
 	nasm -felf $< -o $@
 
-OBJFILES=kernel.o boot.o gdt.o klib.o monitor.o gdt_flush.o interrupt.o isr.o
+OBJFILES=kernel.o boot.o gdt.o klib.o monitor.o gdt_flush.o interrupt.o isr.o \
+	 timer.o
 
 kernel.bin:  $(OBJFILES) linker.ld
 	$(CC) -T linker.ld -o $@ -ffreestanding -O2 -nostdlib $(OBJFILES) -lgcc
