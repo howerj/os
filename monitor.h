@@ -27,6 +27,9 @@ typedef enum
 void monitor_putc(char c);
 void monitor_clear(void);
 void monitor_puts(char *s);
+void monitor_printu(uint32_t d);
+void monitor_printd(int32_t d);
+void monitor_printf(char *fmt, ...);
 void monitor_set_background_color(monitor_color color);
 void monitor_set_foreground_color(monitor_color color);
 void monitor_default_colors(void);

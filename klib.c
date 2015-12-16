@@ -46,7 +46,7 @@ char *kstrcpy(char *dst, const char *src){
         return dst;
 }
 
-uint32_t katou(char *nptr){
+uint32_t kstrtou32(char *nptr){
         uint32_t n = 0;
         char c;
         for(;(c = *nptr++);)
@@ -75,17 +75,6 @@ void* kmemmove(void *dst, const void *src, size_t n){
 	return dst;
 }
 
-char *kreverse(char *s, size_t len) {
-        char c;
-        size_t i = 0;
-        do {
-                c = s[i];
-                s[i] = s[len - i];
-                s[len - i] = c;
-        } while(i++ < (len / 2));
-        return s;
-}
-
 void outb(uint16_t port, uint8_t value)
 {
         asm volatile("outb %1, %0" : : "dN" (port), "a" (value));
@@ -103,5 +92,57 @@ uint16_t inw(uint16_t port)
         uint16_t r;
         asm volatile("inw %1, %0" : "=a" (r): "dN" (port));
         return r;
+}
+
+char *kreverse(char *s, size_t len)
+{
+        size_t i = 0;
+        char c;
+        do {
+                c = s[i];
+                s[i] = s[len - i];
+                s[len - i] = c;
+        } while(i++ < (len / 2));
+        return s;
+}
+
+static const char conv[] = "0123456789abcdefghijklmnopqrstuvwxzy";
+int ku32tostr(char *str, size_t len, uint32_t value, int base)
+{
+        uint32_t i = 0;
+        char s[32 + 1] = "";
+        if(base < 2 || base > 36)
+                return -1;
+        do {
+                s[i++] = conv[value % base];
+        } while((value /= base));
+        if(i > len)
+                return -1;
+        kreverse(s, i-1);
+        s[i] = '\0';
+        kmemmove(str, s, i);
+        return 0;
+}
+
+int ks32tostr(char *str, size_t len, int32_t value, unsigned base) 
+{ 
+        int32_t neg = value;
+        uint32_t i = 0, x = value;
+        char s[32 + 2] = "";
+        if(base < 2 || base > 36)
+                return -1;
+        if(x > INT32_MAX)
+                x = -x;
+        do {
+                s[i++] = conv[x % base];
+        } while((x /= base) > 0);
+        if(neg < 0)
+                s[i++] = '-';
+        if(i > len)
+                return -1;
+        kreverse(s, i-1);
+        s[i] = '\0';
+        kmemmove(str, s, i);
+        return 0;
 }
 

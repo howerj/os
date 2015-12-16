@@ -11,17 +11,16 @@ all: kernel.bin
 boot.o: boot.s
 	$(AS) $< -o $@
 
-klib.o: klib.c klib.h
+%.o: %.c *.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-monitor.o: monitor.c monitor.h klib.h 
-	$(CC) $(CFLAGS) -c $< -o $@
+%.o: %.s
+	nasm -felf $< -o $@
 
-kernel.o: kernel.c klib.h
-	$(CC) $(CFLAGS) -c $< -o $@
+OBJFILES=kernel.o boot.o gdt.o klib.o monitor.o gdt_flush.o interrupt.o isr.o
 
-kernel.bin: kernel.o boot.o klib.o monitor.o linker.ld
-	$(CC) -T linker.ld -o $@ -ffreestanding -O2 -nostdlib boot.o kernel.o klib.o monitor.o -lgcc
+kernel.bin:  $(OBJFILES) linker.ld
+	$(CC) -T linker.ld -o $@ -ffreestanding -O2 -nostdlib $(OBJFILES) -lgcc
 
 #incase grub-mkrescue did not work
 #run: kernel.bin
@@ -34,7 +33,7 @@ kernel.bin: kernel.o boot.o klib.o monitor.o linker.ld
 floppy.img: kernel.bin
 	sudo losetup /dev/loop0 floppy.img
 	sudo mount /dev/loop0 /mnt
-	sudo cp myos.bin /mnt/kernel
+	sudo cp $< /mnt/kernel
 	sudo umount /dev/loop0
 	sudo losetup -d /dev/loop0 
 

@@ -12,7 +12,7 @@ void kernel_main(void)
         monitor_clear();
         monitor_set_background_color(COLOR_RED);
         monitor_set_foreground_color(COLOR_BLUE);
-        monitor_puts("Kernel v0.01a Start\n");
+        monitor_printf("Kernel v%u.%ua Start\n", 0, 1);
         monitor_default_colors();
 }
 

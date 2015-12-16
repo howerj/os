@@ -1,6 +1,7 @@
 /* <http://www.jamesmolloy.co.uk/tutorial_html/3.-The%20Screen.html> */
 #include "monitor.h"
 #include "klib.h"
+#include <stdarg.h>
 
 #define VGA_WIDTH  (80u)
 #define VGA_HEIGHT (25u)
@@ -93,6 +94,56 @@ void monitor_puts(char *s)
         size_t i = 0;
         while(s[i])
                 monitor_putc(s[i++]);
+}
+
+void monitor_printu(uint32_t d)
+{
+        char v[33] = "";
+        ku32tostr(v, 33, d, 10);
+        monitor_puts(v);
+}
+
+void monitor_printd(int32_t d)
+{
+        char v[34] = "";
+        ks32tostr(v, 33, d, 10);
+        monitor_puts(v);
+}
+
+void monitor_printf(char *fmt, ...)
+{
+        va_list ap;
+        int32_t  a;
+        uint32_t b;
+        char f, c, *s;
+        va_start(ap, fmt);
+        while(*fmt) {
+                if('%' == (f = *fmt++)) {
+                        switch(f = *fmt++) {
+                        case '0': goto finish;
+                        case '%': monitor_putc(f);
+                                  break;
+                        case 'c': c = va_arg(ap, int);
+                                  monitor_putc(c);
+                                  break;
+                        case 's': s = va_arg(ap, char*);
+                                  monitor_puts(s);
+                                  break;
+                        case 'u': b = va_arg(ap, uint32_t);
+                                  monitor_printu(b);
+                                  break;
+                        case 'd': a = va_arg(ap, int32_t);
+                                  monitor_printd(a);
+                                  break;
+                        default: /*error*/
+                                  goto finish;
+                        }
+                } else {
+                        monitor_putc(f);
+                }
+        }
+finish:
+        va_end(ap);
 }
 
 void monitor_set_background_color(monitor_color color)
