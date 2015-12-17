@@ -34,7 +34,7 @@ typedef struct __attribute__((packed)) {
         uint32_t base; /* the address of the first element in our idt_entry_struct_t array*/
 } idt_ptr_struct_t;
 
-void gdt_init_descriptor_tables(void);
+void init_descriptor_tables(void);
 
 extern void isr0(void);
 extern void isr1(void);

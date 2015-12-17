@@ -29,7 +29,7 @@ typedef struct {
         uint32_t eip, cs, eflags, esp, ss; /* pushed by the processor automatically */
 } registers_t;
 
-typedef void (*isr_t)(registers_t);
+typedef void (*isr_t)(registers_t*);
 void isr_register_interrupt_handler(uint8_t n, isr_t handler);
 
 #endif

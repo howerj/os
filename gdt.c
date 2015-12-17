@@ -1,5 +1,6 @@
 #include "klib.h"
 #include "gdt.h"
+#include "isr.h"
 
 extern void gdt_flush(uint32_t);
 extern void idt_flush(uint32_t);
@@ -15,10 +16,13 @@ gdt_ptr_struct_t   gdt_ptr;
 idt_entry_struct_t idt_entries[256];
 idt_ptr_struct_t   idt_ptr;
 
+extern isr_t interrupt_handlers[];
+
 void init_descriptor_tables(void)
 {
         init_gdt();
         init_idt();
+        kmemset(&interrupt_handlers, 0, sizeof(isr_t)*256);
 }
 
 static void init_gdt(void)

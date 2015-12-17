@@ -95,6 +95,7 @@ isr_common_stub:
 
     mov ax, ds               ; Lower 16-bits of eax = ds.
     push eax                 ; save the data segment descriptor
+    push esp
 
     mov ax, 0x10  ; load the kernel data segment descriptor
     mov ds, ax
@@ -103,6 +104,8 @@ isr_common_stub:
     mov gs, ax
 
     call isr_handler
+    add esp, 4
+    
 
     pop ebx        ; reload the original data segment descriptor
     mov ds, bx
@@ -126,6 +129,7 @@ irq_common_stub:
 
     mov ax, ds               ; Lower 16-bits of eax = ds.
     push eax                 ; save the data segment descriptor
+    push esp
 
     mov ax, 0x10  ; load the kernel data segment descriptor
     mov ds, ax
@@ -134,6 +138,7 @@ irq_common_stub:
     mov gs, ax
 
     call irq_handler
+    add esp, 4
 
     pop ebx        ; reload the original data segment descriptor
     mov ds, bx

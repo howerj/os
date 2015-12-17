@@ -2,7 +2,7 @@ GCC=i686-elf-gcc
 AS=i686-elf-as
 QEMU=qemu-system-i386
 CC=i686-elf-gcc
-CFLAGS=-std=gnu99 -ffreestanding -O2 -Wall -Wextra
+CFLAGS=-std=gnu99 -ffreestanding -O2 -Wall -Wextra -g
 
 .PHONY: all clean
 
@@ -17,11 +17,11 @@ boot.o: boot.s
 %.o: %.s
 	nasm -felf $< -o $@
 
-OBJFILES=kernel.o boot.o gdt.o klib.o monitor.o gdt_flush.o interrupt.o isr.o \
+OBJFILES=kernel.o boot.o gdt.o klib.o monitor.o flush.o interrupt.o isr.o \
 	 timer.o
 
 kernel.bin:  $(OBJFILES) linker.ld
-	$(CC) -T linker.ld -o $@ -ffreestanding -O2 -nostdlib $(OBJFILES) -lgcc
+	$(CC) -T linker.ld -o $@ -ffreestanding -nostdlib $(OBJFILES) -lgcc
 
 #incase grub-mkrescue did not work
 #run: kernel.bin
@@ -39,8 +39,8 @@ floppy.img: kernel.bin
 	sudo losetup -d /dev/loop0 
 
 run: floppy.img
-	$(QEMU) -fda $< -boot d
-	#$(QEMU) -kernel $< -boot d
+	#$(QEMU) -fda $< -boot d
+	$(QEMU) -kernel kernel.bin 
 
 clean:
 	rm -f *.o *.bin *.iso 

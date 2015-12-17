@@ -5,7 +5,7 @@
 
 static uint32_t ticks = 0;
 
-static void timer_callback(registers_t regs)
+static void timer_callback(registers_t *regs)
 {
         ticks++;
         monitor_printf("Tick: %u\n", ticks);
