@@ -17,10 +17,19 @@ boot.o: boot.s
 %.o: %.s
 	nasm -felf $< -o $@
 
-OBJFILES=kernel.o boot.o gdt.o klib.o monitor.o flush.o interrupt.o isr.o \
-	 timer.o
+vectors.s: vectors.pl
+	./$^ > $@
 
-kernel.bin:  $(OBJFILES) linker.ld
+vectors.o: vectors.s
+	$(AS) $(ASFLAGS) $^ -o $@
+
+trapasm.o: trapasm.s
+	$(AS) $(ASFLAGS) $^ -o $@
+
+OBJFILES=kernel.o boot.o gdt.o klib.o monitor.o flush.o isr.o \
+	 timer.o vectors.o trapasm.o
+
+kernel.bin: $(OBJFILES) linker.ld
 	$(CC) -T linker.ld -o $@ -ffreestanding -nostdlib $(OBJFILES) -lgcc
 
 #incase grub-mkrescue did not work

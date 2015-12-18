@@ -37,11 +37,10 @@ _start:
 	# To set up a stack, we simply set the esp register to point to the top of
 	# our stack (as it grows downwards).
 	movl $stack_top, %esp
-        movl $101, %eax
+        movl $0, %eax # This should be replace with whatever we want to pass
+                      # pass into the kernel
+        push %eax
 	call kernel_main
-
-	cli
-	hlt
 .Lhang:
 	jmp .Lhang
 

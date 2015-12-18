@@ -13,7 +13,7 @@ static void timer_callback(registers_t *regs)
 
 void init_timer(uint32_t frequency)
 {
-        isr_register_interrupt_handler(IRQ_0, &timer_callback);
+        register_interrupt_handler(IRQ_0, &timer_callback);
 
         /* The PIT (programmable interrupt timer) runs at 1193180 Hz */
         uint32_t divisor = 1193180 / frequency;
