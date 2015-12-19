@@ -27,7 +27,7 @@ trapasm.o: trapasm.s
 	$(AS) $(ASFLAGS) $^ -o $@
 
 OBJFILES=kernel.o boot.o gdt.o klib.o monitor.o flush.o isr.o \
-	 timer.o vectors.o trapasm.o
+	 timer.o vectors.o trapasm.o kheap.o paging.o
 
 kernel.bin: $(OBJFILES) linker.ld
 	$(CC) -T linker.ld -o $@ -ffreestanding -nostdlib $(OBJFILES) -lgcc

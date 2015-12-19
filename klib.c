@@ -1,4 +1,12 @@
 #include "klib.h"
+#include "monitor.h"
+
+void panic(char *msg) {
+        monitor_puts(msg);
+        asm volatile("cli");
+        asm volatile("hlt");
+        for(;;) {}
+}
 
 size_t kstrlen(const char* str)
 {

@@ -16,7 +16,6 @@ gdt_ptr_struct_t   gdt_ptr;
 idt_entry_struct_t idt_entries[256];
 idt_ptr_struct_t   idt_ptr;
 
-extern isr_t interrupt_handlers[];
 extern uint32_t vectors[];  /* in vectors.S: array of 256 entry pointers*/
 
 void init_descriptor_tables(void)

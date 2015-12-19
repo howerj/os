@@ -60,4 +60,6 @@ typedef struct {
 typedef void (*isr_t)(registers_t*);
 void register_interrupt_handler(uint8_t n, isr_t handler);
 
+extern isr_t interrupt_handlers[256];
+
 #endif
