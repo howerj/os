@@ -29,6 +29,7 @@ void monitor_clear(void);
 void monitor_puts(char *s);
 void monitor_printu(uint32_t d);
 void monitor_printd(int32_t d);
+void monitor_print_hex(uint32_t h);
 void monitor_printf(char *fmt, ...);
 void monitor_set_background_color(monitor_color color);
 void monitor_set_foreground_color(monitor_color color);

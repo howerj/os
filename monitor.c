@@ -110,6 +110,13 @@ void monitor_printd(int32_t d)
         monitor_puts(v);
 }
 
+void monitor_print_hex(uint32_t h)
+{
+        char v[33] = "";
+        ku32tostr(v, 33, h, 16);
+        monitor_puts(v);
+}
+
 void monitor_printf(char *fmt, ...)
 {
         va_list ap;
@@ -131,6 +138,9 @@ void monitor_printf(char *fmt, ...)
                                   break;
                         case 'u': b = va_arg(ap, uint32_t);
                                   monitor_printu(b);
+                                  break;
+                        case 'x': b = va_arg(ap, uint32_t);
+                                  monitor_print_hex(b);
                                   break;
                         case 'd': a = va_arg(ap, int32_t);
                                   monitor_printd(a);

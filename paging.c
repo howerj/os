@@ -17,7 +17,7 @@ static void set_frame(uint32_t frame_addr)
         uint32_t frame = frame_addr / 0x1000;
         uint32_t idx   = INDEX_FROM_BIT(frame);
         uint32_t off   = OFFSET_FROM_BIT(frame);
-        frames[idx] |= (0x1 << off);
+        frames[idx]   |= (0x1 << off);
 }
 
 static void clear_frame(uint32_t frame_addr)
@@ -25,16 +25,16 @@ static void clear_frame(uint32_t frame_addr)
         uint32_t frame = frame_addr / 0x1000;
         uint32_t idx   = INDEX_FROM_BIT(frame);
         uint32_t off   = OFFSET_FROM_BIT(frame);
-        frames[idx] &= ~(0x1 << off);
+        frames[idx]   &= ~(0x1 << off);
 }
 
-static uint32_t test_frame(uint32_t frame_addr)
+/*static uint32_t test_frame(uint32_t frame_addr)
 {
         uint32_t frame = frame_addr / 0x1000;
         uint32_t idx   = INDEX_FROM_BIT(frame);
         uint32_t off   = OFFSET_FROM_BIT(frame);
         return frames[idx] & (0x1 << off);
-}
+}*/
 
 static uint32_t first_free_frame(void) 
 {
@@ -43,8 +43,8 @@ static uint32_t first_free_frame(void)
                 if(frames[i] != 0xFFFFFFFF) /*nothing free*/
                         for(j = 0; j < 32; j++) {
                                 uint32_t to_test = 0x1 << j;
-                                if(!((frames[i]) & to_test))
-                                        return i*4*8*j;
+                                if(!(frames[i] & to_test))
+                                        return i*4*8+j;
                         }
         return 0; /**@todo check if this is correct*/
 }
@@ -75,17 +75,19 @@ void free_frame(page_t *page)
 
 void initialize_paging(void)
 {
-        size_t i = 0;
         uint32_t mem_end_page = 0x1000000; /*assume we only have 16MiB for the moment*/
         nframes = mem_end_page / 0x1000;
-        frames  = (uint32_t*)kmalloc(INDEX_FROM_BIT(nframes));
+        frames  = (uint32_t*)kmalloc_a(INDEX_FROM_BIT(nframes));
         kmemset(frames, 0, INDEX_FROM_BIT(nframes));
-        
         kernel_directory = (page_directory_t*)kmalloc_a(sizeof(page_directory_t));
         kmemset(kernel_directory, 0, sizeof(*kernel_directory));
         current_directory = kernel_directory;
 
-        while(i < placement_address)
+	monitor_printf("kd %x\n", kernel_directory);
+
+	/* identity map */
+        size_t i = 0;
+        while(i < 0x1000000)
         {
                 /* kernel code is readable but not writeable from user space,
                  * rw flag does not apply to kernel space */
@@ -101,9 +103,9 @@ void initialize_paging(void)
 void switch_page_directory(page_directory_t *dir)
 {
         /*@todo move assembly elsewhere */
-        uint32_t cr0;
         current_directory = dir;
         asm volatile("mov %0, %%cr3" :: "r"(&dir->tables_physical));
+        uint32_t cr0;
         asm volatile("mov %%cr0, %0" :  "=r"(cr0));
         cr0 |= 0x80000000;
         asm volatile("mov %0, %%cr0" :: "r"(cr0)); /*enable paging*/
@@ -116,10 +118,13 @@ page_t *get_page(uint32_t address, int make, page_directory_t *dir)
         /* find the page table containing this address */
         table_idx = address / 1024; 
         if(dir->tables[table_idx]) {
+		//monitor_printf("exists: %x\n", dir->tables[table_idx]);
                 return &dir->tables[table_idx]->pages[address%1024];
         } else if(make) {
                 uint32_t tmp;
                 dir->tables[table_idx] = (page_table_t*)kmalloc_ap(sizeof(page_table_t), &tmp);
+		kmemset(dir->tables[table_idx], 0, sizeof(page_table_t));
+		monitor_printf("make: %x %x %x\n", address*0x1000, tmp, dir->tables[table_idx]);
                 dir->tables_physical[table_idx] = tmp | 0x7; /*present, rw, user*/
                 return &dir->tables[table_idx]->pages[address%1024];
         }
@@ -144,7 +149,7 @@ void page_fault(registers_t *regs)
         if(rw)       monitor_puts("read-only ");
         if(us)       monitor_puts("user-mode ");
         if(reserved) monitor_puts("reserved ");
-        monitor_printf(" %u)\n", faulting_address); /**@todo write hex*/
+        monitor_printf(" %x)\n", faulting_address); 
 
         panic("Halting due to page fault\n");
 }

@@ -18,6 +18,7 @@ SECTIONS
 	.text BLOCK(4K) : ALIGN(4K)
 	{
 		*(.multiboot)
+                code = .; _code = .; __code = .;
 		*(.text)
 	}
 
@@ -37,12 +38,15 @@ SECTIONS
 	.bss BLOCK(4K) : ALIGN(4K)
 	{
 		*(COMMON)
+                bss = .; _bss = .; __bss = .;
 		*(.bss)
+
 		*(.bootstrap_stack)
 	}
 
-        end = .; _end = .; __end = .;
-
+	.end BLOCK(4K) : ALIGN(4K) {
+        	end = .; _end = .; __end = .;
+	}
 	/* The compiler may produce other sections, by default it will put them in
 	   a segment with the same name. Simply add stuff here as needed. */
 }

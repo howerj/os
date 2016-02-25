@@ -9,8 +9,10 @@ void trap(registers_t *regs) {
         if(regs->interrupt_number >= IRQ_0) {
                 if(regs->interrupt_number >= 40) {
                         outb(0xA0, 0x20); /*reset slave*/
+			io_wait();
                 }
                 outb(0x20, 0x20); /*reset master*/
+		io_wait();
         }
         if(interrupt_handlers[regs->interrupt_number]) {
                 isr_t handler = interrupt_handlers[regs->interrupt_number];

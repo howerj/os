@@ -49,7 +49,12 @@ floppy.img: kernel.bin
 
 run: floppy.img
 	#$(QEMU) -fda $< -boot d
-	$(QEMU) -kernel kernel.bin 
+	$(QEMU) -s -m 256 -kernel kernel.bin 
+
+debug: floppy.img
+	-$(QEMU) -S -s -m 256 -kernel kernel.bin &
+	-sleep 1
+	gdb -ex "target remote localhost:1234" -ex "symbol-file kernel.bin"
 
 clean:
 	rm -f *.o *.bin *.iso 

@@ -7,6 +7,11 @@
 .set MAGIC,    0x1BADB002       # 'magic number' lets bootloader find the header
 .set CHECKSUM, -(MAGIC + FLAGS) # checksum of above, to prove we are multiboot
 
+.global mboot
+.extern end
+.extern bss
+.extern end
+
 # Declare a header as in the Multiboot Standard. We put this into a special
 # section so we can force the header to be in the start of the final program.
 # You don't need to understand all these details as it is just magic values that
@@ -14,9 +19,14 @@
 # magic sequence and recognize us as a multiboot kernel.
 .section .multiboot
 .align 4
+mboot:
 .long MAGIC
 .long FLAGS
 .long CHECKSUM
+.long mboot
+.long code
+.long bss
+.long end
 
 # Currently the stack pointer register (esp) points at anything and using it may
 # cause massive harm. Instead, we'll provide our own stack. We will allocate

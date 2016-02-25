@@ -14,9 +14,9 @@ static uint32_t kmalloc_internal(size_t sz, int align, uint32_t *phy)
         placement_address = (placement_address + (0x8 - 0x1)) & -8; /*round up to 8-byte boundary*/
         placement_address &= -4; /*round down to 4-byte boundary*/
         tmp = placement_address;
-        placement_address += sz;
         if(phy)
                 *phy = placement_address;
+        placement_address += sz;
         return tmp;
 }
 
