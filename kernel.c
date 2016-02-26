@@ -2,46 +2,51 @@
 #include "klib.h"
 #include "timer.h"
 #include "gdt.h"
-#include "monitor.h"
-#include "paging.h"
 #include "kheap.h"
- 
+#include "paging.h"
+#include "kbd.h"
+
 /* This tutorial will only work for the 32-bit ix86 targets. Cross compiled */
 #if !defined(__i386__) || defined(__linux__)
 #error "This kernel needs to be cross compiled compiled with a ix86-elf compiler"
 #endif
- 
-static void print_callback(registers_t *regs) {
-	monitor_printf("unhandled exception.\n");
-	monitor_printf("edi %x\tesi %x\tebp %x\toesp %x\nebx %x\tedx %x\tecx %x\teax %x\n",
-		regs->edi, regs->esi, regs->ebp, regs->oesp, regs->ebx, regs->edx, regs->ecx, regs->eax);
-	monitor_printf("gs %x, fs %x, es %x, ds %x, trapno %x\n error %x, eip %x, cs %x, eflags %x, esp %x, ss %x\n",
-		regs->gs, regs->fs, regs->es, regs->ds, regs->interrupt_number, regs->error_code,
-		regs->eip, regs->cs, regs->eflags, regs->esp, regs->ss);
-}
 
-void kernel_main(uint32_t p)
+typedef struct {
+	uint32_t magic;
+	uint32_t flags;
+	uint32_t checksum;
+	uint32_t *mboot, *code, *bss, *end;
+} multiboot_header;
+
+typedef struct {
+	uint32_t *code;
+	uint32_t *bss;
+	uint32_t *stack;
+	uint32_t *end;
+	int argc;
+	char **argv;
+} kparam;
+
+void kernel_main(multiboot_header * bh)
 {
-        asm volatile("cli");
-        monitor_clear();
-        monitor_set_background_color(COLOR_RED);
-        monitor_set_foreground_color(COLOR_BLUE);
-        monitor_printf("Kernel v0.01a Start\n");
-        monitor_printf("value: %d\nplacement %x\n", p, placement_address);
-        init_descriptor_tables();
-        monitor_default_colors();
-	//init_timer(50);
-	for(int i = 0; i <= 0x1f; i++)
-		register_interrupt_handler(i, print_callback);
-	register_interrupt_handler(0x20+1, print_callback);
-        initialize_paging();
-	monitor_printf("placement: %x\n", placement_address);
-        //asm volatile("int $0x3");
-        asm volatile("sti");
-    	uint32_t *ptr = (uint32_t*)0xA0000000;
-    	uint32_t do_page_fault = *ptr;
-	monitor_printf("lol: %x\n", do_page_fault);
+	disable();
+	kprintf("%C%Fb%Br(kernel 0.01 'start)%D\n");
 
-        //asm volatile("int $0x4");
+	if (bh)
+		kprintf("(boot-header 'magic %x 'flags %x 'cksum %x 'mboot %x\n\t'code %x 'bss %x 'end %x)\n",
+			bh->magic, bh->flags, bh->checksum, bh->mboot, bh->code, bh->bss, bh->end);
+	else
+		kprintf("(boot-header nil)");
+
+	initialize_descriptor_tables();
+	initialize_interrupt_handlers();
+	initialize_keyboard();
+	initialize_timer(100);
+	initialize_paging();
+	enable();
+	/*asm volatile("int $0x3"); */
+	uint32_t *ptr = (uint32_t *) 0xA0000000;
+	uint32_t do_page_fault = *ptr;
+	kprintf("a %x\n", do_page_fault);
 }
 

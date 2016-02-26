@@ -26,8 +26,8 @@ vectors.o: vectors.s
 trapasm.o: trapasm.s
 	$(AS) $(ASFLAGS) $^ -o $@
 
-OBJFILES=kernel.o boot.o gdt.o klib.o monitor.o flush.o isr.o \
-	 timer.o vectors.o trapasm.o kheap.o paging.o
+OBJFILES=kernel.o boot.o gdt.o klib.o vga.o flush.o isr.o \
+	 timer.o vectors.o trapasm.o kheap.o paging.o kbd.o
 
 kernel.bin: $(OBJFILES) linker.ld
 	$(CC) -T linker.ld -o $@ -ffreestanding -nostdlib $(OBJFILES) -lgcc
@@ -49,12 +49,11 @@ floppy.img: kernel.bin
 
 run: floppy.img
 	#$(QEMU) -fda $< -boot d
-	$(QEMU) -s -m 256 -kernel kernel.bin 
+	$(QEMU) -s -m 32 -kernel kernel.bin 
 
 debug: floppy.img
-	-$(QEMU) -S -s -m 256 -kernel kernel.bin &
+	-$(QEMU) -S -s -m 32 -kernel kernel.bin &
 	-sleep 1
-	gdb -ex "target remote localhost:1234" -ex "symbol-file kernel.bin"
-
+	gdb -x startup.gdb
 clean:
 	rm -f *.o *.bin *.iso 

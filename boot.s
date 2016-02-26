@@ -4,7 +4,7 @@
 .set ALIGN,    1<<0             # align loaded modules on page boundaries
 .set MEMINFO,  1<<1             # provide memory map
 .set FLAGS,    ALIGN | MEMINFO  # this is the Multiboot 'flag' field
-.set MAGIC,    0x1BADB002       # 'magic number' lets bootloader find the header
+.set MAGIC,    0x1BADB002       # 'magic number' lets bootloader find the header , "One bad boot"
 .set CHECKSUM, -(MAGIC + FLAGS) # checksum of above, to prove we are multiboot
 
 .global mboot
@@ -47,11 +47,11 @@ _start:
 	# To set up a stack, we simply set the esp register to point to the top of
 	# our stack (as it grows downwards).
 	movl $stack_top, %esp
-        movl $0, %eax # This should be replace with whatever we want to pass
-                      # pass into the kernel
+        movl $mboot, %eax 
         push %eax
 	call kernel_main
 .Lhang:
+	hlt
 	jmp .Lhang
 
 # Set the size of the _start symbol to the current location '.' minus its start.
