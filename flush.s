@@ -1,29 +1,28 @@
-;
-; flush.s -- contains global descriptor table and interrupt descriptor table
-;          setup code.
-;          Based on code from Bran's kernel development tutorials.
-;          Rewritten for JamesM's kernel development tutorials.
-; @todo Rewrite in gcc style syntax
+# flush.s -- contains global descriptor table and interrupt descriptor table
+#          setup code.
+#          Based on code from Bran's kernel development tutorials.
+#          Rewritten for JamesM's kernel development tutorials.
+#          ..and rewritten again for my Kernel - RJH
 
-[GLOBAL gdt_flush]    ; Allows the C code to call gdt_flush().
+.global gdt_flush
 
 gdt_flush:
-    mov eax, [esp+4]  ; Get the pointer to the GDT, passed as a parameter.
-    lgdt [eax]        ; Load the new GDT pointer
+	mov 4(%esp), %eax	# get new GDT pointer passed as a parameter 
+	lgdt (%eax)		# load new GDT pointer
+	
+	mov $0x10, %ax		# 0x10 is the offset in the GDT to our data segment
+	mov %ax, %ds		# load all data segment selectors
+	mov %ax, %es
+	mov %ax, %fs
+	mov %ax, %gs
+	mov %ax, %ss
+	jmp $0x08, $flush	# 0x08 is the offset to our code segment, ljmp long/far jump
+flush:
+	ret
 
-    mov ax, 0x10      ; 0x10 is the offset in the GDT to our data segment
-    mov ds, ax        ; Load all data segment selectors
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
-    jmp 0x08:.flush   ; 0x08 is the offset to our code segment: Far jump!
-.flush:
-    ret
-
-[GLOBAL idt_flush]    ; Allows the C code to call idt_flush().
+.global idt_flush
 
 idt_flush:
-    mov eax, [esp+4]  ; Get the pointer to the IDT, passed as a parameter. 
-    lidt [eax]        ; Load the IDT pointer.
-    ret
+	mov 4(%esp), %eax	# get pointer to IDT passed as param
+	lidt (%eax)		# load IDT pointer
+	ret

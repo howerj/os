@@ -8,23 +8,14 @@ CFLAGS=-std=gnu99 -ffreestanding -O2 -Wall -Wextra -g
 
 all: kernel.bin
 
-boot.o: boot.s
-	$(AS) $< -o $@
-
 %.o: %.c *.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 %.o: %.s
-	nasm -felf $< -o $@
+	$(AS) $(ASFLAGS) $^ -o $@
 
 vectors.s: vectors.pl
 	./$^ > $@
-
-vectors.o: vectors.s
-	$(AS) $(ASFLAGS) $^ -o $@
-
-trapasm.o: trapasm.s
-	$(AS) $(ASFLAGS) $^ -o $@
 
 OBJFILES=kernel.o boot.o gdt.o klib.o vga.o flush.o isr.o \
 	 timer.o vectors.o trapasm.o kheap.o paging.o kbd.o
@@ -36,11 +27,8 @@ kernel.bin: $(OBJFILES) linker.ld
 #run: kernel.bin
 #	$(QEMU) -kernel $<
 
-# -boot d == boot from cdrom, for quicker booting
-#run: kernel.iso
-#	$(QEMU) -cdrom $< -boot d
-
 floppy.img: kernel.bin
+	cp floppy/floppy.img .
 	sudo losetup /dev/loop0 floppy.img
 	sudo mount /dev/loop0 /mnt
 	sudo cp $< /mnt/kernel

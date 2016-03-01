@@ -5,3 +5,4 @@
 *.sym
 core
 vgcore*
+floppy.img
