@@ -4,8 +4,11 @@ TARGET=vm
 
 .PHONY: run clean
 
+%.out: %.pas pas
+	./pas %.pas %.out
+
 run: ${TARGET}
 	./${TARGET}
 
 clean:
-	rm -fv ${TARGET} *.o *.a *.exe
+	rm -fv ${TARGET} pas *.o *.a *.exe

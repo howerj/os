@@ -1,26 +1,15 @@
-# Project Oberon-like (Jorgen)
+# Howe: Project Oberon-like system
 
-| Project   | Jorgen: An system like Project Oberon      |
+| Project   | Howe: An system like Project Oberon        |
 | --------- | ------------------------------------------ |
 | Author    | Richard James Howe                         |
-| Copyright | 2019 Richard James Howe                    |
-| License   | MIT                                        |
+| Copyright | 2020 Richard James Howe                    |
+| License   | Unlicense                                  |
 | Email     | howe.r.j.89@gmail.com                      |
 | Website   | <https://github.com/howerj/vm>             |
 
 **This is a work in progress, it is liable to not be complete, not work, or not
 make sense**
-
-
-	       _                            
-	      | |                           
-	      | | ___  _ __ __ _  ___ _ __  
-	  _   | |/ _ \| '__/ _` |/ _ \ '_ \ 
-	 | |__| | (_) | | | (_| |  __/ | | |
-	  \____/ \___/|_|  \__, |\___|_| |_|
-			    __/ |           
-			   |___/            
-
 
 Project goals:
 * Make an Oberon like language that compiles to a virtual machine that could,
@@ -37,6 +26,36 @@ Project goals:
 * Port the system to an FPGA
   - My Forth CPU system <https://github.com/howerj/forth-cpu> could be used as
     basis for some of the peripherals
+
+## Plan
+
+The first task, after making a suitable virtual machine, is to make a
+compiler, in C, for a Pascal like language that could be used to make a kernel
+running on the virtual machine. At this point some tooling for the host to
+format and populate a disk image, and extract disk image contents, would be
+useful.
+
+The initial Pascal like language would need to support; control structures,
+functions, variables, constants, stack and static allocation, some compiler
+intrinsics (like 'put', 'get', 'move', 'copy', 'trap'), an attribute 
+grammar and a few attributes (such as 'locate this function at this address'), 
+minimal inline assembly (maybe), basic operators, arrays and strings, 
+integers (64-bit only), a byte type, a record type, an 'any' type, function
+pointers.
+
+The grammar should be forwards compatible with the grammar of the language I
+aim to implement on the target once the system is up and running. It may be
+worth implementing multiple return values and nested functions initially so
+that the system ABI and kernel API take advantage of them from the start and do
+not have to be rewritten.
+
+Once the language is written and a few test programs made to prove the compiler
+a Unix like kernel would need to be made along with the file system layer and
+host utilities. These utilities would be needed to get data in and out of the
+system, so would be another important step. I plan to make a simple throw away
+file system before moving to something better, perhaps like [littlefs][].
+
+
 
 ## To Do
 
@@ -60,8 +79,6 @@ Project goals:
 
 * Simplify certain things; no special character for private, use a capital
   first letter
-* Add built in floating point numbers later, if at all, provide a library for Q
-  numbers (Q32.32, or Q16.16).
 * As many things as possible should be specified; the system integer width, the
   alignment of things in memory, how signed integers should wrap, etcetera. C
   is underspecified, and allows lots of undefined behaviour, this language
@@ -95,9 +112,13 @@ features could be added as a library
 * <https://pdos.csail.mit.edu/6.828/2018/xv6.html>
 * <http://aiju.de/plan_9/plan9-syscalls>
 * <https://en.wikipedia.org/wiki/MINIX>
+* <https://en.wikipedia.org/wiki/MINIX_3>
 * <https://www.minix3.org/>
 * <https://wiki.osdev.org/Expanded_Main_Page>
 * <https://github.com/vtereshkov/xdpw>
+* <https://github.com/rswier/swieros>
+* <https://news.ycombinator.com/item?id=22427189>
+  <http://selfie.cs.uni-salzburg.at/>
 
 Additional system calls:
 
@@ -333,6 +354,9 @@ it would make utilities that deal with files in bulk less brittle.
   - Designed to be run on an FPGA
 * Crypto stuff
   -
+* Kernel: micro vs monolithic kernel
+  - Reincarnation server
+* Plan: How to boot strap the system
 
 [Oberon]: http://www.projectoberon.com/ 
 [dd]: https://en.wikipedia.org/wiki/Dd_%28Unix%29
@@ -341,3 +365,4 @@ it would make utilities that deal with files in bulk less brittle.
 [C]: https://en.wikipedia.org/wiki/C_(programming_language)
 [CDB]: https://cr.yp.to/cdb.html
 [sqlite]: https://sqlite.org/index.html
+[littlefs]: https://github.com/ARMmbed/littlefs
