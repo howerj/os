@@ -23,6 +23,9 @@ Project goals:
   - With a few more security related system calls:
     - unveil
     - restrict future system calls
+  - Make a busybox like executable which contains the basic utilities, the
+  system compiler, a TCL like system shell, an assembler, a Forth interpreter,
+  and more!
 * Port the system to an FPGA
   - My Forth CPU system <https://github.com/howerj/forth-cpu> could be used as
     basis for some of the peripherals
@@ -119,6 +122,10 @@ features could be added as a library
 * <https://github.com/rswier/swieros>
 * <https://news.ycombinator.com/item?id=22427189>
   <http://selfie.cs.uni-salzburg.at/>
+* <https://en.wikipedia.org/wiki/Burroughs_large_systems>
+* <https://en.wikipedia.org/wiki/MIPS_architecture>
+* <https://github.com/andrewchambers/cmips> (copy MIPS MMU?)
+* <https://github.com/pdewacht/oberon-risc-emu>
 
 Additional system calls:
 

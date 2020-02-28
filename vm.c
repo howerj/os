@@ -2,40 +2,31 @@
  * Author:  Richard James Howe
  * Email:   howe.r.j.89@gmail.com
  * License: Unlicense
- * Repo:    <https://github.com/howerj/vm>
+ * Repo:    <https://github.com/howerj/vm> 
  *
- * This is a work in progress Virtual Machine for an Operating
- * System project.
+ * TODO: Implement a 64-bit version of the Project Oberon instruction
+ * set with the additions of a trap mechanism, an MMU, better hardware
+ * peripherals (networking could use PCAP, there should be standard
+ * ways of identifying peripherals and finding them).
  *
- * TODO/NOTES:
- * - Specify instruction set, the instruction set should be
- *   simple and regular, RISCy, not too much
- * - 16 registers, some for stacks, stack frame, zero register
- *   and CPU flag. There could be two registers also used for
- *   comparison to make sure arithmetic does not go out of bounds
- * - Add peripherals for; Info, Interrupts, Timers, MMU, UART {Either
- *   pure C, or OS read/write to terminal functions}, A Real Time Clock,
- *   Networking {libpcap}, Video {libsdl2}, Key board 
- *   {libsdl2}, Mouse {libsdl2}, Audio {libsdl2}. Anything requiring
- *   an external library would be optional.
- * - Each peripheral should have an ID field and a pointer to
- *   the next peripheral in a list of peripherals
- * - On a trap the CPU privilege level should be upgraded
- * - After the basics are done, extensions for accelerating
- *   virtualization should be added
- * - Multicore processing is a lower priority for now
- * - For the disk, we can load the entire thing into memory and
- *   only save changes if needed
- * - Make a simple BIOS (or fake one) that loads a sector off
- *   off disk and executes it. There would be scope for writing
- *   a complete BIOS as a Forth interpreter...but that would be
- *   an extra much later down the line. The simple (or fake BIOS)
- *   would walk the hardware table looking for the first disk and
- *   load 4096 bytes off it.
- * - Debugging! Either very fast logging and/or an interactive
- *   debugger need make that accepts some primitive commands to
- *   interrogate the state of the system. */
-
+ * The instruction set should be extended with a trap instruction, and
+ * perhaps something like an atomic compare and swap instruction.
+ *
+ * TODO:
+ * - We could add our own eForth BIOS, either way we need to load
+ *   a simple bootloader.
+ * - Each peripheral should exist in its own page with a pointer to
+ *   the next peripheral and an identifier field.
+ * - Peripherals needed; Info table, Interrupt/Trap handler, Memory Management
+ *   Unit (MMU), Timer, Real Time Clock (RTC), UART, Network Interface, 
+ *   Keyboard, Mouse, VGA/Screen. The MMU should be MIPs like, it seems
+ *   simple to implement.
+ * - To get the system up and running we can start with more unrealistic
+ *   peripherals then move to some more implementable, for example the
+ *   mass storage could initially just be 'load/store page to disk', then
+ *   once the system is up we could turn it into 'SPI with CSI Flash or
+ *   an SD Card'.
+ */
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -43,38 +34,25 @@
 #include <limits.h>
 #include <assert.h>
 
-#define SIZE  (8ull*1024ull*1024ull)
-#define DISK  (16ul*1024ull*1024ull)
-#define START (SIZE / 2ull)
-
-enum {
-	REG_ZER = 15,
-	REG_CPU = 14,
-	REG_STK = 13,
-};
-
-enum {
-	FLG_ZER  = 1ull << 0,
-	FLG_EQL  = 1ull << 1,
-	FLG_LES  = 1ull << 3,
-	FLG_MOR  = 1ull << 2,
-	FLG_OVR  = 1ull << 4,
-	FLG_UND  = 1ull << 5,
-	FLG_NEG  = 1ull << 6,
-	FLG_REL  = 1ull << 7,
-	FLG_PRIV = 1ull << 8,
-};
+#define SIZE      (8ull*1024ull*1024ull)
+#define DISK      (16ul*1024ull*1024ull)
+#define START     (SIZE / 2ull)
+#define TRAPS     (256)
+#define UNUSED(X) ((void)(X))
 
 typedef struct {
-	uint64_t vectors[256];
+	uint64_t vectors[TRAPS];
 	uint64_t timer_cycles;
 } vm_peripherals_t;
 
 typedef struct {
 	uint64_t m[SIZE];
 	uint64_t r[16];
+	uint64_t h, ipc;
 	uint64_t pc;
 	vm_peripherals_t p;
+	unsigned Z:1, N:1, C:1, V:1;
+	unsigned IE:1, PRIV:1, REAL:1;
 } vm_t;
 
 static int update(vm_t *v) {
@@ -83,59 +61,76 @@ static int update(vm_t *v) {
 	return 0;
 }
 
-static int mmu_r(vm_t *v, uint64_t addr, uint64_t *out) {
+static void sreg(vm_t *v, unsigned reg, uint64_t value) {
 	assert(v);
-	assert(out);
-	/* TODO: implement MMU */
-	if (addr > SIZE)
-		return -1;
-	/* if mmu not on just do a normal read */
-	*out = v->m[addr/8u];
+	v->r[reg] = value;
+	v->Z = value == 0;
+	v->N = value & 0x8000000000000000ull;
+}
+
+static uint64_t loadw(vm_t *v, uint64_t address) {
+	assert(v);
+	UNUSED(address);
+	/* TODO: Real Mode/MMU/TRAPs */
 	return 0;
 }
 
-static inline uint64_t cpustat(vm_t *v) {
+static uint8_t loadb(vm_t *v, uint64_t address) {
 	assert(v);
-	return v->r[REG_CPU];
-}
-
-static int mmu_w(vm_t *v, uint64_t addr, uint64_t in) {
-	assert(v);
-	/* TODO: implement MMU, come up with a memory
-	 * map for peripherals, starting memory address,
-	 * etcetera. */
-	if (addr > SIZE)
-		return -1;
-	v->m[addr/8u] = in;
+	UNUSED(address);
+	/* TODO: Real Mode/MMU/TRAPs */
 	return 0;
 }
 
-static inline uint64_t rreg(vm_t *v, unsigned reg) {
+static void storew(vm_t *v, uint64_t address, uint64_t value) {
 	assert(v);
-	assert(reg < 16);
-	if (reg == REG_ZER) /* zero register */
-		return 0;
-	return v->r[reg];
+	UNUSED(address);
+	UNUSED(value);
+	/* TODO: Real Mode/MMU/TRAPs */
 }
 
-static inline int wreg(vm_t *v, unsigned reg, uint64_t wr) {
+static void storeb(vm_t *v, uint64_t address, uint8_t value) {
 	assert(v);
-	assert(reg < 16);
-	if (reg == REG_ZER)
-		return 0;
-	if (reg == REG_CPU) { /* CPU Status - cannot set privilege flag if running unprivileged */
-		const uint64_t cpust = v->r[REG_CPU];
-		if ((cpust & FLG_PRIV) == 0) {
-			if (wr & FLG_PRIV)
-				return -1;
-		}
-	}
-	v->r[reg] = wr;
+	UNUSED(address);
+	UNUSED(value);
+	/* TODO: Real Mode/MMU/TRAPs */
+}
+
+static uint64_t fp_add(uint64_t x, uint64_t y, int u, int v) {
+	UNUSED(x);
+	UNUSED(y);
+	UNUSED(u);
+	UNUSED(v);
 	return 0;
+}
+
+static uint64_t fp_mul(uint64_t x, uint64_t y) {
+	UNUSED(x);
+	UNUSED(y);
+	return 0;
+}
+
+static uint64_t fp_div(vm_t *v, uint64_t x, uint64_t y) {
+	assert(v);
+	UNUSED(x);
+	UNUSED(y);
+	/* TODO: raise trap if y == 0 */
+	return 0;
+}
+
+typedef struct { uint64_t quot, rem; } idiv_t;
+
+static idiv_t idiv(vm_t *v, uint64_t x, uint64_t y, int is_signed_div) {
+	assert(v);
+	UNUSED(x);
+	UNUSED(y);
+	UNUSED(is_signed_div);
+	/* TODO: raise trap if y == 0 */
+	return (idiv_t){ 0, 0 };
 }
 
 /* <https://stackoverflow.com/questions/25095741> */
-static void mult64to128(uint64_t op1, uint64_t op2, uint64_t *hi, uint64_t *lo) {
+static inline void mult64to128(uint64_t op1, uint64_t op2, uint64_t *hi, uint64_t *lo) {
     const uint64_t u1 = (op1 & 0xFFFFFFFFull);
     const uint64_t v1 = (op2 & 0xFFFFFFFFul);
     uint64_t t = u1 * v1;
@@ -155,93 +150,153 @@ static void mult64to128(uint64_t op1, uint64_t op2, uint64_t *hi, uint64_t *lo) 
     *lo = (t << 32) + w3;
 }
 
+inline uint64_t arshift(const uint64_t v, const unsigned p) {
+	if ((v == 0) || !(v & 0x8000000000000000ull))
+		return v >> p;
+	const uint64_t leading = ((uint64_t)(-1l)) << ((sizeof(v)*CHAR_BIT) - p - 1);
+	return leading | (v >> p);
+}
+
+static int step(vm_t *v) {
+	assert(v);
+	if (update(v) < 0)
+		return -1;
+
+	enum { /* ANN is merged into AND using ubit */
+		MOV, TRP, LSL, ASR, ROR, AND, /*ANN,*/ IOR, XOR,
+		ADD, SUB, MUL, DIV,FAD, FSB, FML, FDV,
+	};
+
+	const uint64_t pbit = 0x8000000000000000ull;
+	const uint64_t qbit = 0x4000000000000000ull;
+	const uint64_t ubit = 0x2000000000000000ull;
+	const uint64_t vbit = 0x1000000000000000ull;
+
+	uint64_t ir = loadw(v, v->pc / 8ull);
+	v->pc++;
+
+	if ((ir & pbit) == 0) { /* ALU instructions */
+		uint64_t a  = (ir & 0x0F00000000000000ul) >> 56;
+		uint64_t b  = (ir & 0x00F0000000000000ul) >> 52;
+		uint64_t op = (ir & 0x000F000000000000ul) >> 48;
+		uint64_t im =  ir & 0x0000FFFFFFFFFFFFul;
+		uint64_t c  =  ir & 0x000000000000000Ful;
+		uint64_t a_val = 0, b_val = 0, c_val = 0;
+
+		b_val = v->r[b];
+		if ((ir & qbit) == 0)
+			c_val = v->r[c];
+		else if ((ir & vbit) == 0)
+			c_val = im;
+		else
+			c_val = 0xFFFF000000000000ull | im;
+
+		switch (op) {
+		case MOV: 
+			if ((ir & ubit) == 0) {
+				a_val = c_val;
+			} else if ((ir & qbit) != 0) {
+				a_val = c_val << 48;
+			} else if ((ir & vbit) != 0) {
+				a_val = ((uint64_t)v->N    << 63) |
+					((uint64_t)v->Z    << 62) |
+					((uint64_t)v->C    << 61) |
+					((uint64_t)v->V    << 60) |
+					((uint64_t)v->IE   << 59) |
+					((uint64_t)v->PRIV << 58) |
+					((uint64_t)v->REAL << 57) |
+					(v->ipc & ((1ull << 48) - 1ull));
+			} else {
+				a_val = v->h;
+			}
+			break;
+		case TRP:
+			v->PRIV = 1; /* TODO: Find a way to set/clear PRIV */
+			v->IE   = 0; /* TODO: Find a way to allow setting of IE and REAL bit, when PRIV is 1, could use ubit */
+			v->ipc  = v->pc & ((1ull << 48) - 1ull);
+			v->pc   = v->p.vectors[b_val % TRAPS]; 
+			break;
+		case LSL: a_val = b_val << (c_val & 63); break;
+		case ASR: a_val = arshift(b_val, c_val & 63); break;
+		case ROR: a_val = (b_val >> (c_val & 63)) | (b_val << (-c_val & 63)); break;
+		case AND: a_val = b_val & ((ir & ubit) != 0) ? c_val : ~c_val; break;
+		case IOR: a_val = b_val | c_val; break;
+		case XOR: a_val = b_val ^ c_val; break;
+		case ADD: 
+			a_val = b_val + c_val;
+			if ((ir & ubit) != 0)
+				a_val += v->C;
+			v->C = a_val < b_val;
+			v->V = ((a_val ^ c_val) & (a_val ^ b_val)) >> 63;
+			break;
+		case SUB: 
+			a_val = b_val - c_val;
+			if ((ir & ubit) != 0)
+				a_val -= v->C;
+			v->C = a_val > b_val;
+			v->V = ((b_val ^ c_val) & (a_val ^ b_val)) >> 63;
+			break;
+		case MUL: /* TODO: implement */ break;
+		case DIV: /* TODO: implement */ break;
+		case FAD: a_val = fp_add(b_val, c_val, !!(ir & ubit), !!(ir & vbit)); break;
+		case FSB: a_val = fp_add(b_val, c_val ^ 0x8000000000000000ull, !!(ir & ubit), !!(ir & vbit)); break;
+		case FML: a_val = fp_mul(b_val, c_val); break;
+		case FDV: a_val = fp_div(v, b_val, c_val); break;
+		}
+		sreg(v, a, a_val);
+	} else if ((ir & qbit) == 0) { /* memory instructions */
+		uint64_t a = (ir & 0x0F00000000000000ull) >> 56;
+		uint64_t b = (ir & 0x00F0000000000000ull) >> 52;
+		uint64_t off = ir & 0x000FFFFFFFFFFFFFull;
+		off = (off ^ 0x0080000000000000ull) - 0x0080000000000000ull;  // sign-extend
+
+		uint64_t address = v->r[b] + off;
+		if ((ir & ubit) == 0) {
+			const uint64_t a_val = ((ir & vbit) == 0) ? loadw(v, address) : loadb(v, address);
+			sreg(v, a, a_val);
+		} else {
+			if ((ir & vbit) == 0)
+				storew(v, address, v->r[a]);
+			else
+				storeb(v, address, v->r[a]);
+		}
+	} else { /* branch */
+		unsigned t = (ir >> 59) & 1u;
+		switch ((ir >> 56) & 7u) {
+		case 0u: t ^= v->N; break;
+		case 1u: t ^= v->Z; break;
+		case 2u: t ^= v->C; break;
+		case 3u: t ^= v->V; break;
+		case 4u: t ^= v->C | v->Z; break;
+		case 5u: t ^= v->N ^ v->V; break;
+		case 6u: t ^= (v->N ^ v->V) | v->Z; break;
+		case 7u: t ^= 1; break;
+		}
+		if (t) {
+			if ((ir & vbit) != 0)
+				sreg(v, 15, v->pc * 8ull);
+
+			if ((ir & ubit) == 0) {
+				uint64_t c = ir & 0x0000000F00000000ull;
+				v->pc = v->r[c] / 8ull;
+			} else {
+				uint64_t off = ir & 0x00FFFFFFFFFFFFFFull;
+				off = (off ^ 0x0080000000000000ull) - 0x0080000000000000ull;
+				v->pc = v->pc + off;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static int run(vm_t *v, unsigned cycles) {
 	assert(v);
-	uint64_t pc = v->pc, r[16] = { 0 };
-	memcpy(r, v->r, sizeof r);
-
 	for (unsigned c = 0; !cycles || c < cycles; c++) {
-		if (update(v) < 0) {
-			/* TRAP */
-		}
-		uint64_t instr = 0;
-		if (mmu_r(v, pc, &instr) < 0) {
-			/* TRAP */
-		}
-
-		/* Jump/Call:    OP {63-57} | Flags {56-49} | Address {48 - 0} 
-		 * Literal:      OP {63-57} | Flags {56-49} | Dest Reg | Literal 
-		 * Load/Store    OP {63-57} | ??? | Address {48 - 0}
-		 * Arithmetic:   OP {63-57} | Flags {56-49} | Dest Reg | Source Reg A | Literal/Source Reg B */
-		const uint8_t opcode = (instr >> 56) & 0x3Full;
-		const uint8_t group = instr >> 62;
-	
-		/* Add, Sub, Mul?, Jump {Rel, NOUGLEZ}, Call, 
-		 * Return, Shift Left, Shift Right, Rotate Left, 
-		 * Rotate Right, And, Or, Xor, Xnor, Count Leading Zeros 
-		 * (and other bit functions?), Move, Load, Store, Literal
-		 *
-		 * Also see:
-		 * https://en.wikipedia.org/wiki/Bit_Manipulation_Instruction_Sets */
-
-
-		switch (group) {
-		case 0: /* Jump/Calls */
-		{
-			const uint64_t cflags = cpustat(v) & 0x7Full;
-			const uint64_t iflags = (instr >> 48) & 0x7Full;
-			const uint64_t addres = instr & 0x0000FFFFFFFFFFFFull;
-			const int is_relative = (instr >> 55) & 0x1ull;
-			const int do_the_jump = !!(cflags ^ iflags);
-			switch (opcode) {
-			case 0: /* JUMP */
-				if (do_the_jump)
-					pc = is_relative ? pc + addres : addres;
-				goto none;
-			case 1: /* CALL */
-				if (do_the_jump) {
-					
-				}
-				goto none;
-			default:
-				/* TRAP */
-				break;
-			}
-
-			break;
-		}
-		case 1: /* Arithmetic */
-		{
-			const uint64_t cflags = cpustat(v) & 0x7Full;
-			const uint64_t iflags = (instr >> 48) & 0x7Full;
-			const int is_literal  = (instr >> 55) & 0x1ull;
-			const int do_the_inst = !!(cflags ^ iflags);
-			if (do_the_inst == 0)
-				goto increment;
-			switch (opcode) {
-			case 0: {
-				break;
-			}
-			case 1:
-				break;
-			}
-			break;
-		}
-		case 2:
-			break;
-		case 3:
-			break;
-		default:
-			/* TRAP */
-			break;
-		}
-	increment:
-		pc += 8ull;
-	none:
-		;
+		/* debug(v, file) */
+		if (step(v) < 0)
+			return -1;
 	}
-	v->pc = pc;
-	memcpy(v->r, r, sizeof r);
 	return 0;
 }
 
@@ -277,4 +332,3 @@ int main(int argc, char **argv) {
 	/* save */
 	return 0;
 }
-
