@@ -1,12 +1,21 @@
-# Howe: Project Oberon-like system
+# SYSTEM: Project Oberon-like system
 
-| Project   | Howe: An system like Project Oberon        |
+| Project   | SYSTEM: An system like Project Oberon      |
 | --------- | ------------------------------------------ |
 | Author    | Richard James Howe                         |
 | Copyright | 2020 Richard James Howe                    |
-| License   | Unlicense                                  |
+| License   | BSD (Zero Clause)                          |
 | Email     | howe.r.j.89@gmail.com                      |
 | Website   | <https://github.com/howerj/vm>             |
+
+
+	  _______ _             _______     _______ _______ ______ __  __ 
+	 |__   __| |           / ____\ \   / / ____|__   __|  ____|  \/  |
+	    | |  | |__   ___  | (___  \ \_/ / (___    | |  | |__  | \  / |
+	    | |  | '_ \ / _ \  \___ \  \   / \___ \   | |  |  __| | |\/| |
+	    | |  | | | |  __/  ____) |  | |  ____) |  | |  | |____| |  | |
+	    |_|  |_| |_|\___| |_____/   |_| |_____/   |_|  |______|_|  |_|
+
 
 **This is a work in progress, it is liable to not be complete, not work, or not
 make sense**
@@ -364,6 +373,12 @@ it would make utilities that deal with files in bulk less brittle.
 * Kernel: micro vs monolithic kernel
   - Reincarnation server
 * Plan: How to boot strap the system
+* GUI vs TUI vs CLI; support all three.
+  - A simple TUI interface could be made, much like in the Asuro OS,
+  <https://www.spexeah.com/wp-content/uploads/2019/03/Windows-1024x683.png>,
+  <https://www.spexeah.com/index.php/asuro/>
+  - First up is the CLI, obviously, but a GUI should be attempted,
+  and well, taken from Project Oberon.
 
 [Oberon]: http://www.projectoberon.com/ 
 [dd]: https://en.wikipedia.org/wiki/Dd_%28Unix%29

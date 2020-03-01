@@ -13,6 +13,10 @@
  *
  */
 
+/* lexer */
+/* parser */
+/* code generator */
+
 int main(void) {
 	return 0;
 }
