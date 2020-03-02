@@ -48,6 +48,9 @@
  *   Unit (MMU), Timer, Real Time Clock (RTC), UART, Network Interface, 
  *   Keyboard, Mouse, VGA/Screen. The MMU should be MIPs like, it seems
  *   simple to implement.
+ * - Add tests for the arithmetic functions
+ * - It would be nice to be able to specify two page sizes, one big enough
+ *   to hold the kernel/most user land utilities, and one for general usage.
  * - Add an interactive debugger, logging, and getopts options.
  * - To get the system up and running we can start with more unrealistic
  *   peripherals then move to some more implementable, for example the
@@ -60,8 +63,7 @@
  *   Some MMU/TLB related instructions are needed, at least one to
  *   invalidate a page.
  * - Just a note, a cool instruction would be an 'interpret' instruction,
- *   capable of executing an instruction from a register.
- */
+ *   capable of executing an instruction from a register. */
 #include <stdio.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -71,22 +73,6 @@
 #include <assert.h>
 
 #define UNUSED(X)             ((void)(X))
-
-#define SIZE                  (1ull*1024ull*1024ull)
-#define PAGE                  (4096ull)
-#define DISK                  (2ull*1024ull*1024ull)
-#define MEMORY_ADDR           (0x0000800000000000ull)
-#define IO_ADDR               (0x0000400000000000ull)
-#define TRAPS                 (256)
-
-#define TLB_SIZE              (64)
-
-#define TLB_ENTRY_FLAGS_INUSE (63) /* Entry in use */
-#define TLB_ENTRY_FLAGS_DIRTY (62)
-#define TLB_ENTRY_FLAGS_PRIVL (61) /* Privilege flag */
-#define TLB_ENTRY_FLAGS_WXORX (60) /* Write or Execute */
-#define TLB_ENTRY_FLAGS_READ  (59) /* Read permission */
-
 #ifdef _WIN32 /* Used to unfuck file mode for "Win"dows. Text mode is for losers. */
 #include <windows.h>
 #include <io.h>
@@ -96,13 +82,47 @@ static void binary(FILE *f) { _setmode(_fileno(f), _O_BINARY); } /* only platfor
 static inline void binary(FILE *f) { UNUSED(f); }
 #endif
 
+#define RAM_SIZE              (1ull*1024ull*1024ull)
+#define PAGE                  (4096ull)
+#define DISK_SIZE             (2ull*1024ull*1024ull)
+#define RAM_ADDR              (0x0000800000000000ull)
+#define IO_ADDR               (0x0000400000000000ull)
+#define TRAPS                 (256)
+#define PERIPHERAL_SLOTS      (12)
+
+#define TLB_SIZE              (64)
+
+enum {
+	TLB_ENTRY_FLAGS_INUSE = 63, /* Entry in use */
+	TLB_ENTRY_FLAGS_DIRTY = 62, /* Written to */
+	TLB_ENTRY_FLAGS_PRIVL = 61, /* Privilege flag */
+	TLB_ENTRY_FLAGS_WXORX = 60, /* Write or Execute */
+	TLB_ENTRY_FLAGS_READ  = 59, /* Read permission */
+};
+
 enum {
 	TRAP_RESET,
-	TRAP_ADDR,
+	TRAP_BUS_ERROR,
+	TRAP_UNMAPPED,
 	TRAP_DIV0,
 	TRAP_FDIV0,
 	TRAP_UNALIGNED,
 	TRAP_DISABLED,
+};
+
+enum {
+	IO_UNUSED,
+	IO_INFO,
+	IO_INTERRUPTs,
+	IO_MMU,
+	IO_TIMER,
+	IO_UART,
+	IO_DISK,
+	IO_NETWORK,
+	IO_MOUSE,
+	IO_KEYBOARD,
+	IO_VIDEO,
+	IO_AUDIO,
 };
 
 struct vm;
@@ -129,42 +149,297 @@ typedef struct {
    uint64_t flags; /* could just use upper bits of entry */
 } vm_tlb_t; /* an entry in the Translation Look-aside Buffer for the Memory Management Unit */
 
-typedef struct {
-	const char *name;
+struct vm_io;
+typedef struct vm_io vm_io_t;
+
+struct vm_io {
 	void *cb_param;
+	uint64_t id, car, cdr, size; /* each peripheral has an ID field and next pointer */
 	uint64_t paddr_hi, paddr_lo;
-	int (*open)(vm_t *v, void **cb_param);
-	int (*close)(vm_t *v, void *cb_param);
-	int (*update)(vm_t *v, void *cb_param);
-	int (*load)(vm_t *v, void *cb_param, uint64_t *paddr, uint64_t *out);
-	int (*store)(vm_t *v, void *cb_param, uint64_t *paddr, uint64_t in);
-} vm_peripheral_t;
+	int (*open)(vm_io_t *p, vm_t *v, void *resource);
+	int (*close)(vm_io_t *p, vm_t *v);
+	int (*update)(vm_io_t *p, vm_t *v);
+	int (*load)(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t *out);
+	int (*store)(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t in);
+};
 
 typedef struct {
 	uint64_t vectors[TRAPS];
-	uint64_t timer_cycles;
-	uint64_t disk[DISK];
-} vm_peripherals_t;
+	uint64_t disk[DISK_SIZE];
+} vm_ios_t;
 
 struct vm {
 	vm_tlb_t tlb[TLB_SIZE];
-	vm_peripherals_t p;
-	uint64_t m[SIZE];
+	vm_ios_t p;
+	vm_io_t io[PERIPHERAL_SLOTS];
+	uint64_t m[RAM_SIZE];
 	uint64_t r[16];
-	uint64_t h, ipc;
-	uint64_t pc;
+	uint64_t H, IPC;
+	uint64_t PC;
 	unsigned long cycles;
 	unsigned Z:1, N:1, C:1, V:1;
-	unsigned IE:1, PRIV:1, REAL:1;
+	unsigned IE:1, PRIV:1, REAL:1, FAULT:2;
+	/* TODO: add mechanism for detecting and clearing faults */
 };
+
+typedef struct { 
+	uint64_t quot, rem; 
+} idiv_t;
+
+enum { BACKSPACE = 8, ESCAPE = 27, DELETE = 127, };
+
+#ifdef __unix__
+#include <unistd.h>
+#include <termios.h>
+static int getch(void) {
+	struct termios oldattr, newattr;
+	tcgetattr(STDIN_FILENO, &oldattr);
+	newattr = oldattr;
+	newattr.c_iflag &= ~(ICRNL);
+	newattr.c_lflag &= ~(ICANON | ECHO);
+
+	tcsetattr(STDIN_FILENO, TCSANOW, &newattr);
+	const int ch = getchar();
+
+	tcsetattr(STDIN_FILENO, TCSANOW, &oldattr);
+
+	return ch;
+}
+
+static int putch(int c) {
+	int res = putchar(c);
+	fflush(stdout);
+	return res;
+}
+#else
+#ifdef _WIN32
+
+extern int getch(void);
+extern int putch(int c);
+
+#else
+static int getch(void) {
+	return getchar();
+}
+
+static int putch(const int c) {
+	return putchar(c);
+}
+#endif
+#endif /** __unix__ **/
+
+static int wrap_getch(/*int *debug_on*/) {
+	const int ch = getch();
+	//assert(debug_on);
+	if (ch == EOF) {
+		fprintf(stderr, "End Of Input - exiting\n");
+		exit(EXIT_SUCCESS);
+	}
+	if (ch == 27 /*&& debug_on*/) {
+		//*debug_on = 1;
+		exit(0);
+	}
+
+	return ch == DELETE ? BACKSPACE : ch;
+}
 
 static inline int within(uint64_t value, uint64_t lo, uint64_t hi) {
 	return (value >= lo) && (value <= hi);
 }
 
+static int trap(vm_t *v, unsigned number) {
+	assert(v);
+	UNUSED(number);
+	v->PRIV = 1; /* TODO: Find a way to set/clear PRIV */
+	v->IE   = 0; /* TODO: Find a way to allow setting of IE and REAL bit, when PRIV is 1, could use ubit */
+	v->IPC  = (v->PC & ((1ull << 48) - 1ull)) * 8ull;
+	v->PC   = v->p.vectors[number % TRAPS] / 8ull; 
+	return -1;
+}
+
+static int io_default_close(vm_io_t *p, vm_t *v) {
+	assert(p && v);
+	free(p->cb_param);
+	p->cb_param = NULL;
+	return 0;
+}
+
+static int io_default_open(vm_io_t *p, vm_t *v, void *resource) {
+	assert(p && v);
+	UNUSED(resource);
+	if (p->close(p, v) < 0)
+		return -1;
+	return 0;
+}
+
+static int io_default_update(vm_io_t *p, vm_t *v) {
+	assert(p && v);
+	return 0;
+}
+
+static int io_default_load(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t *out) {
+	assert(p && v);
+	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	assert(out);
+	return trap(v, TRAP_BUS_ERROR);
+}
+
+static int io_default_store(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t in) {
+	assert(p && v);
+	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	UNUSED(in);
+	return trap(v, TRAP_BUS_ERROR);
+}
+
+static int io_info_load(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t *out) {
+	assert(p && v);
+	assert(out);
+	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	paddr -= p->paddr_lo;
+	switch (paddr) {
+	case 12: *out = 0; break;
+	case 16: *out = 0; break;
+	case 20: *out = RAM_ADDR; break;
+	case 24: *out = RAM_SIZE; break;
+	default: return trap(v, TRAP_BUS_ERROR);
+	}
+	return 0;
+}
+
+static int io_timer_open(vm_io_t *p, vm_t *v, void *resource) {
+	assert(p && v);
+	UNUSED(resource);
+	p->cb_param = NULL;
+	p->cb_param = calloc(1, sizeof (uint64_t));
+	if (!(p->cb_param))
+		return -1;
+	return 0;
+}
+
+static int io_timer_update(vm_io_t *p, vm_t *v) {
+	assert(p && v);
+	uint64_t *timer = p->cb_param;
+	(*timer)++;
+	return 0;
+}
+
+static int io_timer_load(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t *out) {
+	assert(p && v);
+	assert(out);
+	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	paddr -= p->paddr_lo;
+	switch (paddr) {
+	case 12: *out = *(uint64_t*)(p->cb_param); break;
+	default: return trap(v, TRAP_BUS_ERROR);
+	}
+	return 0;
+}
+
+static int io_timer_store(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t in) {
+	assert(p && v);
+	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	switch (paddr) {
+	case 12: *(uint64_t*)(p->cb_param) = in; break;
+	default: return trap(v, TRAP_BUS_ERROR);
+	}
+	return 0;
+}
+
+static int io_uart_open(vm_io_t *p, vm_t *v, void *resource) {
+	assert(p && v);
+	UNUSED(resource);
+	return 0;
+}
+
+static int io_uart_close(vm_io_t *p, vm_t *v) {
+	assert(p && v);
+	return 0;
+}
+
+static int io_uart_load(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t *out) {
+	assert(p && v);
+	assert(out);
+	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	paddr -= p->paddr_lo;
+	switch (paddr) {
+	case 12: *out = wrap_getch(); break;
+	default: return trap(v, TRAP_BUS_ERROR);
+	}
+	return 0;
+}
+
+static int io_uart_store(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t in) {
+	assert(p && v);
+	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	switch (paddr) {
+	case 12: putch(in); break;
+	default: return trap(v, TRAP_BUS_ERROR);
+	}
+	return 0;
+}
+
+typedef struct {
+	uint64_t m[DISK_SIZE];
+	uint64_t block;
+	char *file;
+} disk_t;
+
+static int io_disk_open(vm_io_t *p, vm_t *v, void *resource) {
+	assert(p && v);
+	disk_t *dsk = calloc(1, sizeof (disk_t));
+	if (!dsk)
+		return -1;
+	p->cb_param = dsk;
+	return 0;
+}
+
+static int io_disk_close(vm_io_t *p, vm_t *v) {
+	assert(p && v);
+	free(p->cb_param);
+	p->cb_param = NULL;
+	return 0;
+}
+
+static int io_disk_load(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t *out) {
+	assert(p && v);
+	assert(out);
+	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	return 0;
+}
+
+static int io_disk_store(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t in) {
+	assert(p && v);
+	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	return 0;
+}
+
+static const vm_t vm_default = {
+	.io = { /* TODO: Patch up addresses for .paddr_hi && .paddr_lo, in init(), and setup defaults */
+		{ .id = IO_INFO,       .size = PAGE, .load = io_info_load, },
+		{ .id = IO_INTERRUPTs, .size = PAGE, },
+		{ .id = IO_MMU,        .size = PAGE, },
+		{ .id = IO_TIMER,      .size = PAGE, .open = io_timer_open, .update = io_timer_update,.store = io_timer_store, .load = io_timer_load },
+		{ .id = IO_UART,       .size = PAGE, .open = io_uart_open, .close = io_uart_close, .store = io_uart_store, .load = io_uart_load },
+		{ .id = IO_DISK,       .size = 2ull *PAGE, .open = io_disk_open, .close = io_disk_close, .store = io_disk_store, .load = io_disk_load },
+		//{ .id = IO_NETWORK,    .size = PAGE, },
+		//{ .id = IO_MOUSE,      .size = PAGE, },
+		//{ .id = IO_KEYBOARD,   .size = PAGE, },
+		//{ .id = IO_VIDEO,      .size = PAGE, },
+		//{ .id = IO_AUDIO,      .size = PAGE, },
+	},
+	.Z    = 1,
+	.PRIV = 1,
+	.REAL = 1,
+	.PC   = RAM_ADDR / 8ull,
+	.IE   = 0,
+};
+
 static int io_update(vm_t *v) {
 	assert(v);
-	v->p.timer_cycles++;
+	for (size_t i = 0; i < PERIPHERAL_SLOTS; i++) {
+		vm_io_t *p = &v->io[i];
+		p->update(p, v);
+	}
 	return 0;
 }
 
@@ -175,21 +450,12 @@ static void sreg(vm_t *v, unsigned reg, uint64_t value) {
 	v->N = value & 0x8000000000000000ull;
 }
 
-static int trap(vm_t *v, unsigned number) {
-	assert(v);
-	UNUSED(number);
-	v->PRIV = 1; /* TODO: Find a way to set/clear PRIV */
-	v->IE   = 0; /* TODO: Find a way to allow setting of IE and REAL bit, when PRIV is 1, could use ubit */
-	v->ipc  = (v->pc & ((1ull << 48) - 1ull)) * 8ull;
-	v->pc   = v->p.vectors[number % TRAPS] / 8ull; 
-	return -1;
-}
-
 static int tlb_lookup(vm_t *v, uint64_t va, uint64_t *pa) {
 	assert(pa);
 	*pa = 0;
 	/* TODO: privilege level, mask off (PAGE_SIZE - 1) when doing check,
 	 * auto lookup when not in TLB... */
+
 	for (size_t i = 0; i < TLB_SIZE; i++)
 		if (v->tlb[i].flags & TLB_ENTRY_FLAGS_INUSE && v->tlb[i].vaddr == va) {
 			*pa = v->tlb[i].paddr;
@@ -200,7 +466,7 @@ static int tlb_lookup(vm_t *v, uint64_t va, uint64_t *pa) {
 
 static int tlb_flush_single(vm_t *v, uint64_t va) {
 	assert(v);
-	for (size_t i = 0; i< TLB_SIZE; i++)
+	for (size_t i = 0; i < TLB_SIZE; i++)
 		if (v->tlb[i].flags & TLB_ENTRY_FLAGS_INUSE && v->tlb[i].vaddr == va) {
 			v->tlb[i].flags &= ~TLB_ENTRY_FLAGS_INUSE;
 			return 1;
@@ -211,36 +477,24 @@ static int tlb_flush_single(vm_t *v, uint64_t va) {
 static int loadio(vm_t *v, uint64_t address, uint64_t *value) {
 	assert(v);
 	assert(value);
-	assert(within(address, IO_ADDR, MEMORY_ADDR - 8));
-
-	if (within(address, IO_ADDR, IO_ADDR + (1ull * PAGE) - 8ull)) { /* INFO */
-	} else if(address < IO_ADDR + (2ull * PAGE)) { /* TRAPS */
-	} else if(address < IO_ADDR + (3ull * PAGE)) { /* MMU */
-	} else if(address < IO_ADDR + (4ull * PAGE)) { /* TIMER */
-	} else if(address < IO_ADDR + (5ull * PAGE)) { /* UART */
-	} else if(address < IO_ADDR + (6ull * PAGE)) { /* NETWORK */
-	} else if(address < IO_ADDR + (7ull * PAGE)) { /* MOUSE */
-	} else if(address < IO_ADDR + (8ull * PAGE)) { /* KEYBOARD */
-	} else if(address < IO_ADDR + (9ull * PAGE)) { /* VIDEO */
+	assert(within(address, IO_ADDR, RAM_ADDR - 8ull));
+	for (size_t i = 0; i < PERIPHERAL_SLOTS; i++) {
+		vm_io_t *p = &v->io[i];
+		if (within(address, p->paddr_lo, p->paddr_hi))
+			return p->load(p, v, address, value);
 	}
-
-	return trap(v, TRAP_ADDR);
+	return trap(v, TRAP_BUS_ERROR);
 }
 
 static int storeio(vm_t *v, uint64_t address, uint64_t value) {
 	assert(v);
-	if (within(address, IO_ADDR, IO_ADDR + (1ull * PAGE) - 8ull)) { /* INFO */
-		return trap(v, TRAP_ADDR); /* read only peripheral */
-	} else if(address < IO_ADDR + (2ull * PAGE)) { /* TRAPS */
-	} else if(address < IO_ADDR + (3ull * PAGE)) { /* MMU */
-	} else if(address < IO_ADDR + (4ull * PAGE)) { /* TIMER */
-	} else if(address < IO_ADDR + (5ull * PAGE)) { /* UART */
-	} else if(address < IO_ADDR + (6ull * PAGE)) { /* NETWORK */
-	} else if(address < IO_ADDR + (7ull * PAGE)) { /* MOUSE */
-	} else if(address < IO_ADDR + (8ull * PAGE)) { /* KEYBOARD */
-	} else if(address < IO_ADDR + (9ull * PAGE)) { /* VIDEO */
+	assert(within(address, IO_ADDR, RAM_ADDR - 8ull));
+	for (size_t i = 0; i < PERIPHERAL_SLOTS; i++) {
+		vm_io_t *p = &v->io[i];
+		if (within(address, p->paddr_lo, p->paddr_hi))
+			return p->store(p, v, address, value);
 	}
-	return trap(v, TRAP_ADDR);
+	return trap(v, TRAP_BUS_ERROR);
 }
 
 static int loadw(vm_t *v, uint64_t address, uint64_t *value) {
@@ -249,20 +503,24 @@ static int loadw(vm_t *v, uint64_t address, uint64_t *value) {
 	*value = 0;
 	if (address & 7ull)
 		return trap(v, TRAP_UNALIGNED);
-
-	if (v->REAL) {
-		if (address >= MEMORY_ADDR) {
-			if (address >= MEMORY_ADDR + SIZE)
-				return trap(v, TRAP_ADDR);
-			*value = v->m[(address - MEMORY_ADDR)/8ull];
-			return 0;
-		} else if (address > IO_ADDR) {
-			return loadio(v, address, value);
-		} 
-		return trap(v, TRAP_ADDR);
+	/* TODO: Store registers for paddr and vaddr, on trap */
+	if (v->REAL == 0) {
+		uint64_t paddr = 0;
+		const int st = tlb_lookup(v, address, &paddr);
+		if (st != 0)
+			return trap(v, TRAP_UNMAPPED);
+		address = paddr;
 	}
 
-	return trap(v, TRAP_ADDR);
+	if (address >= RAM_ADDR) {
+		if (address >= RAM_ADDR + RAM_SIZE)
+			return trap(v, TRAP_BUS_ERROR);
+		*value = v->m[(address - RAM_ADDR)/8ull];
+		return 0;
+	} else if (address > IO_ADDR) {
+		return loadio(v, address, value);
+	} 
+	return trap(v, TRAP_BUS_ERROR);
 }
 
 static int loadb(vm_t *v, uint64_t address, uint8_t *value) {
@@ -279,25 +537,27 @@ static int loadb(vm_t *v, uint64_t address, uint8_t *value) {
 
 static int storew(vm_t *v, uint64_t address, uint64_t value) {
 	assert(v);
-	
+	/* TODO: Store registers for paddr and vaddr, with value, on trap */
 	if (address & 7ull)
 		return trap(v, TRAP_UNALIGNED);
 
-	if (v->REAL) {
-		if (address >= MEMORY_ADDR) {
-			if (address > MEMORY_ADDR + SIZE)
-				return trap(v, TRAP_ADDR);
-			v->m[(address - MEMORY_ADDR)/8ull] = value;
-			return 0;
-		} else if (address > IO_ADDR) {
-			return storeio(v, address, value);
-		} else {
-			return trap(v, TRAP_ADDR);
-		}
+	if (v->REAL == 0) {
+		uint64_t paddr = 0;
+		const int st = tlb_lookup(v, address, &paddr);
+		if (st != 0)
+			return trap(v, TRAP_UNMAPPED);
+		address = paddr;
 	}
 
-	/* TODO: Real Mode/MMU/TRAPs */
-	return trap(v, TRAP_ADDR);
+	if (address >= RAM_ADDR) {
+		if (address > RAM_ADDR + RAM_SIZE)
+			return trap(v, TRAP_BUS_ERROR);
+		v->m[(address - RAM_ADDR)/8ull] = value;
+		return 0;
+	} else if (address > IO_ADDR) {
+		return storeio(v, address, value);
+	}
+	return trap(v, TRAP_BUS_ERROR);
 }
 
 static int storeb(vm_t *v, uint64_t address, uint8_t value) {
@@ -337,7 +597,8 @@ static inline void reverse(char * const r, const size_t length) {
 	}
 }
 
-static uint64_t fp_add(vm_t *v, uint64_t x, uint64_t y, int ubit, int vbit) {
+/* TODO: 64-bit floating point arithmetic */
+static uint32_t fp_add(vm_t *v, uint32_t x, uint32_t y, int ubit, int vbit) {
 	assert(v);
 	int xs = (x & 0x80000000ul) != 0;
 	uint32_t xe = 0;
@@ -374,10 +635,10 @@ static uint64_t fp_add(vm_t *v, uint64_t x, uint64_t y, int ubit, int vbit) {
 		y3 = shift > 31 ? (int32_t)arshift32(y0, 31) : y0 >> shift;
 	}
 
-	uint32_t sum = ((xs << 26) | (xs << 25) | (x3 & 0x01FFFFFF))
-	+ ((ys << 26) | (ys << 25) | (y3 & 0x01FFFFFF));
+	uint32_t sum = ((xs << 26) | (xs << 25) | (x3 & 0x01FFFFFFul))
+	+ ((ys << 26) | (ys << 25) | (y3 & 0x01FFFFFFul));
 
-	uint32_t s = (((sum & (1 << 26)) ? -sum : sum) + 1) & 0x07FFFFFF;
+	uint32_t s = (((sum & (1 << 26)) ? -sum : sum) + 1) & 0x07FFFFFFul;
 
 	uint32_t e1 = e0 + 1;
 	uint32_t t3 = s >> 1;
@@ -405,7 +666,7 @@ static uint64_t fp_add(vm_t *v, uint64_t x, uint64_t y, int ubit, int vbit) {
 	return ((sum & 0x04000000ul) << 5) | (e1 << 23) | ((t3 >> 1) & 0x7FFFFFul);
 }
 
-static uint64_t fp_mul(vm_t *v, uint64_t x, uint64_t y) {
+static uint32_t fp_mul(vm_t *v, uint32_t x, uint32_t y) {
 	assert(v);
 	const uint32_t sign = (x ^ y) & 0x80000000ul;
 	const uint32_t xe = (x >> 23) & 0xFFul;
@@ -426,14 +687,14 @@ static uint64_t fp_mul(vm_t *v, uint64_t x, uint64_t y) {
 
 	if (xe == 0 || ye == 0)
 		return 0;
-	else if ((e1 & 0x100) == 0)
-		return sign | ((e1 & 0xFF) << 23) | (z0 >> 1);
-	else if ((e1 & 0x80) == 0)
-		return sign | (0xFF << 23) | (z0 >> 1);
+	else if ((e1 & 0x100ul) == 0)
+		return sign | ((e1 & 0xFFul) << 23) | (z0 >> 1);
+	else if ((e1 & 0x80ul) == 0)
+		return sign | (0xFFul << 23) | (z0 >> 1);
 	return 0;
 }
 
-static uint64_t fp_div(vm_t *v, uint64_t x, uint64_t y) {
+static uint32_t fp_div(vm_t *v, uint32_t x, uint32_t y) {
 	assert(v);
 	UNUSED(x);
 	if (y == 0)
@@ -448,34 +709,49 @@ static uint64_t fp_div(vm_t *v, uint64_t x, uint64_t y) {
 
 	uint32_t e1 = (xe - ye) + 126;
 	uint32_t q2 = 0;
-	if ((q1 & (1 << 25)) != 0) {
+	if ((q1 & (1ul << 25)) != 0) {
 		e1++;
-		q2 = (q1 >> 1) & 0xFFFFFF;
+		q2 = (q1 >> 1) & 0xFFFFFFul;
 	} else {
-		q2 = q1 & 0xFFFFFF;
+		q2 = q1 & 0xFFFFFFul;
 	}
 	uint32_t q3 = q2 + 1ul;
 
 	if (xe == 0)
 		return 0;
 	else if (ye == 0)
-		return sign | (0xFF << 23);
-	else if ((e1 & 0x100) == 0)
-		return sign | ((e1 & 0xFF) << 23) | (q3 >> 1);
-	else if ((e1 & 0x80) == 0)
-		return sign | (0xFF << 23) | (q2 >> 1);
+		return sign | (0xFFul << 23);
+	else if ((e1 & 0x100ul) == 0)
+		return sign | ((e1 & 0xFFul) << 23) | (q3 >> 1);
+	else if ((e1 & 0x80ul) == 0)
+		return sign | (0xFFul << 23) | (q2 >> 1);
 	return 0;
 }
 
-typedef struct { uint64_t quot, rem; } idiv_t;
+static idiv_t divide(uint64_t x, uint64_t y, int is_signed_div) {
+	const int sign = ((int64_t)x < 0) && is_signed_div;
+	uint64_t x0 = sign ? -x : x;
 
-static idiv_t divide(vm_t *v, uint64_t x, uint64_t y, int is_signed_div) {
-	assert(v);
-	UNUSED(x);
-	UNUSED(is_signed_div);
-	if (y == 0)
-		trap(v, TRAP_DIV0);
-	return (idiv_t){ 0, 0 };
+	typedef struct { uint64_t hi, lo; } u128_t;
+	u128_t RQ = { .lo = x0 };
+	for (int S = 0; S < 64; S++) {
+		const uint64_t w0 = (RQ.lo >> 63) | (RQ.hi << 1);
+		const uint64_t w1 = w0 - y;
+		if ((int64_t)w1 < 0)
+			RQ = (u128_t) { .hi = w0, .lo = (RQ.lo & 0x7FFFFFFFFFFFFFFFull) << 1 };
+		else
+			RQ = (u128_t) { .hi = w1, .lo = ((RQ.lo & 0x7FFFFFFFFFFFFFFFull) << 1) | 1ull };
+	}
+
+	idiv_t d = { RQ.lo, RQ.hi };
+	if (sign) {
+		d.quot = -d.quot;
+		if (d.rem) {
+			d.quot -= 1;
+			d.rem = y - d.rem;
+		}
+	}
+	return d;
 }
 
 /* <https://stackoverflow.com/questions/25095741> */
@@ -498,7 +774,6 @@ static inline void multiply(uint64_t op1, uint64_t op2, uint64_t *hi, uint64_t *
     *hi = (op1 * op2) + w1 + k;
     *lo = (t << 32) + w3;
 }
-
 
 static inline void u64_to_csv(char b[64], uint64_t u, const char delimiter, const uint64_t base) {
 	assert(b);
@@ -538,7 +813,7 @@ static int debug(vm_t *v, debug_t *d, uint64_t st) {
 		d->init = 1;
 	}
 
-	if (print_value(d->out, v->pc * 8ull) < 0)
+	if (print_value(d->out, v->PC * 8ull) < 0)
 		return -1;
 	if (print_value(d->out, st) < 0)
 		return -1;
@@ -549,7 +824,7 @@ static int debug(vm_t *v, debug_t *d, uint64_t st) {
 			((uint64_t)v->IE   << 59) |
 			((uint64_t)v->PRIV << 58) |
 			((uint64_t)v->REAL << 57) |
-			(v->ipc & ((1ull << 48) - 1ull));
+			(v->IPC & ((1ull << 48) - 1ull));
 	if (print_value(d->out, flags) < 0)
 		return -1;
 	for (size_t i = 0; i < 16; i++)
@@ -575,13 +850,13 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 	const uint64_t vbit = 0x1000000000000000ull;
 
 	uint64_t ir = 0;
-	int st = loadw(v, v->pc * 8ull, &ir);
+	int st = loadw(v, v->PC * 8ull, &ir);
 
 	if (debug(v, d, ir) < 0)
 		return -1;
 
 	if (st == 0)
-		v->pc++;
+		v->PC++;
 	else
 		goto nop;
 
@@ -615,13 +890,18 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 					((uint64_t)v->IE   << 59) |
 					((uint64_t)v->PRIV << 58) |
 					((uint64_t)v->REAL << 57) |
-					(v->ipc & ((1ull << 48) - 1ull));
+					(v->IPC & ((1ull << 48) - 1ull));
 			} else {
-				a_val = v->h;
+				a_val = v->H;
 			}
 			break;
 		case TRP: a_val = b_val; trap(v, b_val); break;
-		case TLB: a_val = 0; trap(v, TRAP_DISABLED); /* TODO: check privilege level, invalidate, install entry, ... */ break;
+		case TLB: if ((ir & ubit) == 0) { /* TODO: more memory instructions, merge with trap? */
+				  if (!tlb_flush_single(v, b_val)) {
+				  }
+			  } else {
+			  }
+			  break;
 		case LSL: a_val = b_val << (c_val & 63); break;
 		case ASR: a_val = arshift64(b_val, c_val & 63); break;
 		case ROR: a_val = (b_val >> (c_val & 63)) | (b_val << (-c_val & 63)); break;
@@ -645,10 +925,30 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 			if ((ir & ubit) == 0) { /* TODO: sign extend 64-bit to 128-bit then multiply */
 				trap(v, TRAP_DISABLED);
 			} else {
-				multiply(b_val, c_val, &v->h, &a_val);
+				multiply(b_val, c_val, &v->H, &a_val);
 			}
 			break;
-		case DIV: trap(v, TRAP_DISABLED);/* TODO: implement */ break;
+		case DIV: 
+			if (c_val == 0) {
+				(void)trap(v, TRAP_DIV0);
+			} else if ((int64_t)c_val > 0) {
+				if ((ir & ubit) == 0) {
+					a_val = (int64_t)b_val / (int64_t)c_val;
+					v->H = (int64_t)b_val % (int64_t)c_val;
+					if ((int64_t)v->H < 0) {
+						a_val--;
+						v->H += c_val;
+					}
+				} else {
+					a_val = b_val / c_val;
+					v->H = b_val % c_val;
+				}
+			} else {
+				const idiv_t q = divide(b_val, c_val, ir & ubit);
+				a_val = q.quot;
+				v->H = q.rem;
+			}
+			break;
 		case FAD: a_val = fp_add(v, b_val, c_val, !!(ir & ubit), !!(ir & vbit)); break;
 		case FSB: a_val = fp_add(v, b_val, c_val ^ 0x8000000000000000ull, !!(ir & ubit), !!(ir & vbit)); break;
 		case FML: a_val = fp_mul(v, b_val, c_val); break;
@@ -656,8 +956,8 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 		}
 		sreg(v, a, a_val);
 	} else if ((ir & qbit) == 0) { /* memory instructions */
-		uint64_t a = (ir & 0x0F00000000000000ull) >> 56;
-		uint64_t b = (ir & 0x00F0000000000000ull) >> 52;
+		const uint64_t a = (ir & 0x0F00000000000000ull) >> 56;
+		const uint64_t b = (ir & 0x00F0000000000000ull) >> 52;
 		uint64_t off = ir & 0x000FFFFFFFFFFFFFull;
 		off = (off ^ 0x0080000000000000ull) - 0x0080000000000000ull;  // sign-extend
 
@@ -693,15 +993,15 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 		}
 		if (t) {
 			if ((ir & vbit) != 0)
-				sreg(v, 15, v->pc * 8ull);
+				sreg(v, 15, v->PC * 8ull);
 
 			if ((ir & ubit) == 0) {
 				uint64_t c = ir & 0x0000000F00000000ull;
-				v->pc = v->r[c] / 8ull;
+				v->PC = v->r[c] / 8ull;
 			} else {
 				uint64_t off = ir & 0x00FFFFFFFFFFFFFFull;
 				off = (off ^ 0x0080000000000000ull) - 0x0080000000000000ull;
-				v->pc = v->pc + off;
+				v->PC = v->PC + off;
 			}
 		}
 	}
@@ -722,13 +1022,42 @@ static int run(vm_t *v, debug_t *d, unsigned long cycles) {
 	return 0;
 }
 
-static int init(vm_t *v) {
+static int deinit(vm_t *v) {
 	assert(v);
-	v->pc = MEMORY_ADDR / 8ull;
-	v->REAL = 1;
-	v->PRIV = 1;
-	v->IE = 0;
+	int r = 0;
+	for (size_t i = 0; i < PERIPHERAL_SLOTS; i++) {
+		vm_io_t *p = &v->io[i];
+		if (p->close(p, v) < 0)
+			r = -1;
+	}
+	return r;
+}
+
+static int init(vm_t *v) { /* TODO: Initialize disk */
+	assert(v);
+	*v = vm_default;
+	uint64_t addr = IO_ADDR;
+	assert(((addr & (PAGE - 1ull)) == 0));
+	for (size_t i = 0; i < PERIPHERAL_SLOTS; i++) {
+		vm_io_t *p = &v->io[i];
+		p->open   = p->open   ? p->open   : io_default_open;
+		p->close  = p->close  ? p->close  : io_default_close;
+		p->update = p->update ? p->update : io_default_update;
+		p->load   = p->load   ? p->load   : io_default_load;
+		p->store  = p->store  ? p->store  : io_default_store;
+		p->paddr_lo = addr;
+		p->paddr_hi = addr + p->size - 8ull;
+		addr += p->size;
+		p->car = p->paddr_lo;
+		p->cdr = addr;
+		assert(((addr & (PAGE - 1ull)) == 0));
+		if (p->open(p, v, NULL) < 0)
+			goto fail;
+	}
 	return 0;
+fail:
+	(void)deinit(v);
+	return -1;
 }
 
 static int load(char *file, uint64_t *m, size_t length, unsigned is_hex) {
@@ -846,9 +1175,9 @@ int main(int argc, char **argv) {
 
 	static char ibuf[BUFSIZ], obuf[BUFSIZ];
 	if (setvbuf(stdin, ibuf, _IOFBF, sizeof ibuf) < 0)
-		return 1;
+		goto fail;
 	if (setvbuf(stdout, obuf, _IOFBF, sizeof obuf) < 0)
-		return 1;
+		goto fail;
 
 	for (int ch = 0; (ch = vm_getopt(&opt, argc, argv, "hxDk:d:c:")) != -1; ) {
 		switch (ch) {
@@ -857,15 +1186,15 @@ int main(int argc, char **argv) {
 		case 'D': d.on = 1; break;
 		case 'c': cycles = atol(opt.arg); break;
 		case 'k':
-			if (load(opt.arg, &v.m[0], SIZE, is_hex) < 0) {
+			if (load(opt.arg, &v.m[0], RAM_SIZE, is_hex) < 0) {
 				fprintf(stderr, "load kernel failed: %s\n", argv[1]);
-				return 1;
+				goto fail;
 			}
 			break;
 		case 'd':
-			if (load(opt.arg, &v.p.disk[0], DISK, is_hex) < 0) {
+			if (load(opt.arg, &v.p.disk[0], DISK_SIZE, is_hex) < 0) {
 				fprintf(stderr, "load disk failed: %s\n", argv[2]);
-				return 1;
+				goto fail;
 			}
 			break;
 		default: help(stderr, argv[0]); return 1;
@@ -874,8 +1203,11 @@ int main(int argc, char **argv) {
 
 	if (run(&v, &d, cycles) < 0) {
 		fprintf(stderr, "run failed\n");
-		return 1;
+		goto fail;
 	}
-	return 0;
+	return deinit(&v);
+fail:
+	(void)deinit(&v);
+	return 1;
 }
 

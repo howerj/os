@@ -379,6 +379,11 @@ it would make utilities that deal with files in bulk less brittle.
   <https://www.spexeah.com/index.php/asuro/>
   - First up is the CLI, obviously, but a GUI should be attempted,
   and well, taken from Project Oberon.
+  - To save space and to impose some artificial artistic constrains, in the
+  GUI the icon format should just allow mono-color pictures for icons, with
+  a selectable color and a transparent 'color'. This should make icons very
+  small. The same should apply to coloring of the GUI elements, a simple,
+  minimalist coloring scheme (perhaps 4 colors, for example).
 
 [Oberon]: http://www.projectoberon.com/ 
 [dd]: https://en.wikipedia.org/wiki/Dd_%28Unix%29

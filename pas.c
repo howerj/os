@@ -11,8 +11,18 @@
  * with what I want the language to be, and be able to
  * write the initial shell and user land.
  *
+ * TODO:
+ * - Define grammar
+ * - Implement Lexer/Parser
+ * - Simple code generation
+ * - Make test program/kernel
+ * - Iterate compiler
+ * - Make sure all code uses relative jumps/loads if possible.
+ * - Write tools for packing/unpacking a simple file system disk image
+ *
  */
 
+/* support code */
 /* lexer */
 /* parser */
 /* code generator */
