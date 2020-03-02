@@ -59,6 +59,8 @@
  *   Also see <https://wiki.osdev.org/Memory_Management_Unit>
  *   Some MMU/TLB related instructions are needed, at least one to
  *   invalidate a page.
+ * - Just a note, a cool instruction would be an 'interpret' instruction,
+ *   capable of executing an instruction from a register.
  */
 #include <stdio.h>
 #include <inttypes.h>
@@ -83,6 +85,7 @@
 #define TLB_ENTRY_FLAGS_DIRTY (62)
 #define TLB_ENTRY_FLAGS_PRIVL (61) /* Privilege flag */
 #define TLB_ENTRY_FLAGS_WXORX (60) /* Write or Execute */
+#define TLB_ENTRY_FLAGS_READ  (59) /* Read permission */
 
 #ifdef _WIN32 /* Used to unfuck file mode for "Win"dows. Text mode is for losers. */
 #include <windows.h>
@@ -185,6 +188,8 @@ static int trap(vm_t *v, unsigned number) {
 static int tlb_lookup(vm_t *v, uint64_t va, uint64_t *pa) {
 	assert(pa);
 	*pa = 0;
+	/* TODO: privilege level, mask off (PAGE_SIZE - 1) when doing check,
+	 * auto lookup when not in TLB... */
 	for (size_t i = 0; i < TLB_SIZE; i++)
 		if (v->tlb[i].flags & TLB_ENTRY_FLAGS_INUSE && v->tlb[i].vaddr == va) {
 			*pa = v->tlb[i].paddr;
@@ -559,8 +564,8 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 	if (io_update(v) < 0)
 		goto nop;
 
-	enum { /* ANN is merged into AND using ubit  */
-		MOV, TRP, LSL, ASR, ROR, AND, /*ANN,*/ IOR, XOR,
+	enum { /* ANN is merged into AND using ubit, as with IOR/XOR  */
+		MOV, TRP, TLB, LSL, ASR, ROR, AND, /*ANN,*/ IOR, /*XOR,*/
 		ADD, SUB, MUL, DIV,FAD, FSB, FML, FDV,
 	};
 
@@ -616,12 +621,12 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 			}
 			break;
 		case TRP: a_val = b_val; trap(v, b_val); break;
+		case TLB: a_val = 0; trap(v, TRAP_DISABLED); /* TODO: check privilege level, invalidate, install entry, ... */ break;
 		case LSL: a_val = b_val << (c_val & 63); break;
 		case ASR: a_val = arshift64(b_val, c_val & 63); break;
 		case ROR: a_val = (b_val >> (c_val & 63)) | (b_val << (-c_val & 63)); break;
 		case AND: a_val = b_val & ((ir & ubit) != 0) ? c_val : ~c_val; break;
-		case IOR: a_val = b_val | c_val; break;
-		case XOR: a_val = b_val ^ c_val; break;
+		case IOR: a_val = (ir & ubit) != 0 ? b_val | c_val : b_val ^ c_val; break;
 		case ADD: 
 			a_val = b_val + c_val;
 			if ((ir & ubit) != 0)
