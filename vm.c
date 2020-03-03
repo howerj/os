@@ -1,7 +1,7 @@
 /* Program: 64-bit Project Oberon-Like Virtual Machine
  * Author:  Richard James Howe (with code taken from Peter De Wachter)
  * Email:   howe.r.j.89@gmail.com
- * License: BSD (Zero clause)
+ * License: ISC
  * Repo:    <https://github.com/howerj/vm> 
  *
  * Copyright (c) 2014 Peter De Wachter, 2020 Richard James Howe
@@ -84,6 +84,7 @@ static inline void binary(FILE *f) { UNUSED(f); }
 
 #define RAM_SIZE              (1ull*1024ull*1024ull)
 #define PAGE                  (4096ull)
+#define PAGE_MASK             (PAGE - 1ull)
 #define DISK_SIZE             (2ull*1024ull*1024ull)
 #define RAM_ADDR              (0x0000800000000000ull)
 #define IO_ADDR               (0x0000400000000000ull)
@@ -92,22 +93,27 @@ static inline void binary(FILE *f) { UNUSED(f); }
 
 #define TLB_SIZE              (64)
 
+enum { READ, WRITE, EXECUTE };
+
 enum {
-	TLB_ENTRY_FLAGS_INUSE = 63, /* Entry in use */
-	TLB_ENTRY_FLAGS_DIRTY = 62, /* Written to */
-	TLB_ENTRY_FLAGS_PRIVL = 61, /* Privilege flag */
-	TLB_ENTRY_FLAGS_WXORX = 60, /* Write or Execute */
-	TLB_ENTRY_FLAGS_READ  = 59, /* Read permission */
+	TLB_ENTRY_FLAGS_INUSE    = 63, /* Entry in use */
+	TLB_ENTRY_FLAGS_PRIVL    = 62, /* Privilege flag */
+	TLB_ENTRY_FLAGS_DIRTY    = 61, /* Written to */
+	TLB_ENTRY_FLAGS_ACCESSED = 60, /* Page has been accessed */
+	TLB_ENTRY_FLAGS_READ     = 59, /* Read permission */
+	TLB_ENTRY_FLAGS_WRITE    = 58, /* Write permission */
+	TLB_ENTRY_FLAGS_EXECUTE  = 57, /* Execute permission */
 };
 
 enum {
 	TRAP_RESET,
 	TRAP_BUS_ERROR,
 	TRAP_UNMAPPED,
+	TRAP_UNALIGNED,
+	TRAP_PROTECTION,
+	TRAP_DISABLED,
 	TRAP_DIV0,
 	TRAP_FDIV0,
-	TRAP_UNALIGNED,
-	TRAP_DISABLED,
 };
 
 enum {
@@ -123,6 +129,17 @@ enum {
 	IO_KEYBOARD,
 	IO_VIDEO,
 	IO_AUDIO,
+};
+
+enum { /* register 14 is a special register */
+	R14_PRIV    = 63,
+	R14_INT_EN  = 62,
+	R14_REAL    = 61,
+	R14_FAULT   = 60,
+	R14_Z       = 59,
+	R14_N       = 58,
+	R14_C       = 57,
+	R14_V       = 56,
 };
 
 struct vm;
@@ -144,9 +161,8 @@ typedef struct {
 } vm_getopt_t;       /* getopt clone; with a few modifications */
 
 typedef struct {
-   uint64_t vaddr; /* virtual address to lookup */
-   uint64_t paddr; /* physical address */
-   uint64_t flags; /* could just use upper bits of entry */
+   uint64_t paddr; /* physical address, flags in top 16 bits */
+   uint64_t vaddr; /* virtual address to lookup, flags in top 16 bits not used */
 } vm_tlb_t; /* an entry in the Translation Look-aside Buffer for the Memory Management Unit */
 
 struct vm_io;
@@ -179,6 +195,7 @@ struct vm {
 	unsigned long cycles;
 	unsigned Z:1, N:1, C:1, V:1;
 	unsigned IE:1, PRIV:1, REAL:1, FAULT:2;
+	/* TODO: Move special register bits to register 14 */
 	/* TODO: add mechanism for detecting and clearing faults */
 };
 
@@ -187,6 +204,27 @@ typedef struct {
 } idiv_t;
 
 enum { BACKSPACE = 8, ESCAPE = 27, DELETE = 127, };
+
+static inline void bit_set(uint64_t *x, const int bit) {
+	assert(x);
+	*x |= (1ull << bit);
+}
+
+static inline void bit_clear(uint64_t * const x, const int bit) {
+	assert(x);
+	*x &= ~(1ull << bit);
+}
+
+static inline int bit_is_set(const uint64_t x, const int bit) {
+	return !!(x & (1ull << bit));
+}
+
+static inline void bit_copy(uint64_t * const dst, const uint64_t src, const int bit) {
+	if (bit_is_set(src, bit))
+		bit_set(dst, bit);
+	else
+		bit_clear(dst, bit);
+}
 
 #ifdef __unix__
 #include <unistd.h>
@@ -380,37 +418,76 @@ static int io_uart_store(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t in) {
 
 typedef struct {
 	uint64_t m[DISK_SIZE];
-	uint64_t block;
-	char *file;
+	uint64_t page[PAGE/8ull];
+	uint64_t block, mode;
+	FILE *file;
 } disk_t;
 
 static int io_disk_open(vm_io_t *p, vm_t *v, void *resource) {
 	assert(p && v);
+	if (!resource)
+		return 0;
 	disk_t *dsk = calloc(1, sizeof (disk_t));
 	if (!dsk)
 		return -1;
+	dsk->file = fopen(resource, "r+b");
+	if (!(dsk->file)) {
+		free(dsk);
+		return -1;
+	}
 	p->cb_param = dsk;
 	return 0;
 }
 
 static int io_disk_close(vm_io_t *p, vm_t *v) {
 	assert(p && v);
-	free(p->cb_param);
+	disk_t *dsk = p->cb_param;
+	int r = 0;
+	if (dsk && dsk->file)
+		r = fclose(dsk->file);
+	free(dsk);
 	p->cb_param = NULL;
-	return 0;
+	return r != 0 ? -1 : 0;
 }
 
 static int io_disk_load(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t *out) {
 	assert(p && v);
 	assert(out);
 	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
+	disk_t *dsk = p->cb_param;
+	paddr -= p->paddr_lo;
+	switch (paddr) {
+	case 12: *out = dsk->block;  return 0;
+	case 16: *out = dsk->mode;   return 0;
+	default:
+		if (within(paddr, p->paddr_lo + PAGE, p->paddr_hi)) {
+			*out = dsk->page[paddr/8ull];
+			return 0;
+		}
+	}
 	return 0;
 }
 
 static int io_disk_store(vm_io_t *p, vm_t *v, uint64_t paddr, uint64_t in) {
 	assert(p && v);
 	assert(within(paddr, p->paddr_lo + 12ull, p->paddr_hi));
-	return 0;
+	disk_t *dsk = p->cb_param;
+	paddr -= p->paddr_lo;
+	switch (paddr) {
+	case 12: dsk->block = in; return 0;
+	case 16: 
+		bit_copy(&dsk->mode, in, 0);
+		if (bit_is_set(in, 1)) {
+			return trap(v, TRAP_DISABLED);/* TODO: File operation - seek + read ^ write */
+		}
+		return 0;
+	default:
+		if (within(paddr, p->paddr_lo + PAGE, p->paddr_hi)) {
+			dsk->page[paddr/8ull] = in;
+			return 0;
+		}
+	}
+	return trap(v, TRAP_BUS_ERROR);
 }
 
 static const vm_t vm_default = {
@@ -450,27 +527,59 @@ static void sreg(vm_t *v, unsigned reg, uint64_t value) {
 	v->N = value & 0x8000000000000000ull;
 }
 
-static int tlb_lookup(vm_t *v, uint64_t va, uint64_t *pa) {
-	assert(pa);
-	*pa = 0;
-	/* TODO: privilege level, mask off (PAGE_SIZE - 1) when doing check,
-	 * auto lookup when not in TLB... */
+#define TLB_ADDR_MASK (0x0000FFFFFFFFFFFFFFFFull & ~PAGE_MASK)
+#define TLB_FLAG_MASK (0xFFFF0000000000000000ull)
+#define TLB_PADR_MASK (PAGE - 1ull)
 
-	for (size_t i = 0; i < TLB_SIZE; i++)
-		if (v->tlb[i].flags & TLB_ENTRY_FLAGS_INUSE && v->tlb[i].vaddr == va) {
-			*pa = v->tlb[i].paddr;
-			return 1;
+static int tlb_lookup(vm_t *v, uint64_t va, uint64_t *pa, int rwx) { /* 0 == found, 1 == thrown trap */
+	assert(pa);
+	assert(rwx == READ || rwx == WRITE || rwx == EXECUTE);
+	*pa = 0;
+	/* TODO: assert PAGE is power of 2 */
+
+	const uint64_t low = va & TLB_PADR_MASK;
+	va &= TLB_ADDR_MASK;
+
+	for (size_t i = 0; i < TLB_SIZE; i++) {
+		vm_tlb_t *t = &v->tlb[i];
+		if (bit_is_set(t->paddr, TLB_ENTRY_FLAGS_INUSE) && t->vaddr == va) {
+			if (v->PRIV == 0)
+				if (0 == bit_is_set(t->paddr, TLB_ENTRY_FLAGS_PRIVL))
+					return trap(v, TRAP_PROTECTION);
+			int bit = 0;
+			switch (rwx) {
+			case READ:    bit = TLB_ENTRY_FLAGS_READ;    break;
+			case WRITE:   bit = TLB_ENTRY_FLAGS_WRITE;   break;
+			case EXECUTE: bit = TLB_ENTRY_FLAGS_EXECUTE; break;
+			}
+
+			if (0 == bit_is_set(t->paddr, bit))
+				return trap(v, TRAP_PROTECTION);
+
+			bit_set(&t->paddr, TLB_ENTRY_FLAGS_ACCESSED);
+			if (rwx == WRITE)
+				bit_set(&t->paddr, TLB_ENTRY_FLAGS_DIRTY);
+			*pa = (TLB_ADDR_MASK & t->paddr) + low;
+			return 0;
 		}
-	return 0;
+	}
+	/* TODO: Look in memory at the page tables (PTE - page table entry), 
+	 * the page tables will have privilege set, but the TLB can 
+	 * look at them. *OR* do it the MIPs way and thrown an exception. */
+	return trap(v, TRAP_UNMAPPED);
 }
 
 static int tlb_flush_single(vm_t *v, uint64_t va) {
 	assert(v);
-	for (size_t i = 0; i < TLB_SIZE; i++)
-		if (v->tlb[i].flags & TLB_ENTRY_FLAGS_INUSE && v->tlb[i].vaddr == va) {
-			v->tlb[i].flags &= ~TLB_ENTRY_FLAGS_INUSE;
+	assert(v->PRIV);
+	va &= TLB_ADDR_MASK;
+	for (size_t i = 0; i < TLB_SIZE; i++) {
+		vm_tlb_t *t = &v->tlb[i];
+		if (bit_is_set(t->paddr, TLB_ENTRY_FLAGS_INUSE) && t->vaddr == va) {
+			bit_clear(&t->paddr, TLB_ENTRY_FLAGS_INUSE);
 			return 1;
 		}
+	}
 	return 0;
 }
 
@@ -497,7 +606,7 @@ static int storeio(vm_t *v, uint64_t address, uint64_t value) {
 	return trap(v, TRAP_BUS_ERROR);
 }
 
-static int loadw(vm_t *v, uint64_t address, uint64_t *value) {
+static int loader(vm_t *v, uint64_t address, uint64_t *value, int rwx) {
 	assert(v);
 	assert(value);
 	*value = 0;
@@ -506,9 +615,9 @@ static int loadw(vm_t *v, uint64_t address, uint64_t *value) {
 	/* TODO: Store registers for paddr and vaddr, on trap */
 	if (v->REAL == 0) {
 		uint64_t paddr = 0;
-		const int st = tlb_lookup(v, address, &paddr);
+		const int st = tlb_lookup(v, address, &paddr, rwx);
 		if (st != 0)
-			return trap(v, TRAP_UNMAPPED);
+			return -1;
 		address = paddr;
 	}
 
@@ -521,6 +630,14 @@ static int loadw(vm_t *v, uint64_t address, uint64_t *value) {
 		return loadio(v, address, value);
 	} 
 	return trap(v, TRAP_BUS_ERROR);
+}
+
+static int loadw(vm_t *v, uint64_t address, uint64_t *value) {
+	return loader(v, address, value, READ);
+}
+
+static int loadwx(vm_t *v, uint64_t address, uint64_t *value) {
+	return loader(v, address, value, EXECUTE);
 }
 
 static int loadb(vm_t *v, uint64_t address, uint8_t *value) {
@@ -543,9 +660,9 @@ static int storew(vm_t *v, uint64_t address, uint64_t value) {
 
 	if (v->REAL == 0) {
 		uint64_t paddr = 0;
-		const int st = tlb_lookup(v, address, &paddr);
+		const int st = tlb_lookup(v, address, &paddr, WRITE);
 		if (st != 0)
-			return trap(v, TRAP_UNMAPPED);
+			return -1;
 		address = paddr;
 	}
 
@@ -577,7 +694,7 @@ static int storeb(vm_t *v, uint64_t address, uint8_t value) {
 static inline uint64_t arshift64(const uint64_t v, const unsigned p) {
 	if ((v == 0) || !(v & 0x8000000000000000ull))
 		return v >> p;
-	const uint64_t leading = ((uint64_t)(-1l)) << ((sizeof(v)*CHAR_BIT) - p - 1);
+	const uint64_t leading = ((uint64_t)(-1ll)) << ((sizeof(v)*CHAR_BIT) - p - 1);
 	return leading | (v >> p);
 }
 
@@ -624,14 +741,12 @@ static uint32_t fp_add(vm_t *v, uint32_t x, uint32_t y, int ubit, int vbit) {
 	if (ye > xe) {
 		const uint32_t shift = ye - xe;
 		e0 = ye;
-		/*x3 = shift > 31 ? x0 >> 31 : x0 >> shift;*/
 		x3 = shift > 31 ? (int32_t)arshift32(x0, 31) : x0 >> shift;
 		y3 = y0;
 	} else {
 		const uint32_t shift = xe - ye;
 		e0 = xe;
 		x3 = x0;
-		/*y3 = shift > 31 ? y0 >> 31 : y0 >> shift;*/
 		y3 = shift > 31 ? (int32_t)arshift32(y0, 31) : y0 >> shift;
 	}
 
@@ -850,7 +965,7 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 	const uint64_t vbit = 0x1000000000000000ull;
 
 	uint64_t ir = 0;
-	int st = loadw(v, v->PC * 8ull, &ir);
+	int st = loadwx(v, v->PC * 8ull, &ir);
 
 	if (debug(v, d, ir) < 0)
 		return -1;
@@ -883,6 +998,7 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 			} else if ((ir & qbit) != 0) {
 				a_val = c_val << 48;
 			} else if ((ir & vbit) != 0) {
+				/* TODO: Remove when new special register is implemented */
 				a_val = ((uint64_t)v->N    << 63) |
 					((uint64_t)v->Z    << 62) |
 					((uint64_t)v->C    << 61) |
@@ -949,10 +1065,11 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 				v->H = q.rem;
 			}
 			break;
-		case FAD: a_val = fp_add(v, b_val, c_val, !!(ir & ubit), !!(ir & vbit)); break;
-		case FSB: a_val = fp_add(v, b_val, c_val ^ 0x8000000000000000ull, !!(ir & ubit), !!(ir & vbit)); break;
-		case FML: a_val = fp_mul(v, b_val, c_val); break;
-		case FDV: a_val = fp_div(v, b_val, c_val); break;
+		/* 32-bit floats are shifted so that the negative flag is set */
+		case FAD: a_val = (uint64_t)fp_add(v, b_val >> 32, c_val, !!(ir & ubit), !!(ir & vbit)) << 32; break;
+		case FSB: a_val = (uint64_t)fp_add(v, b_val >> 32, (c_val ^ 0x8000000000000000ull) >> 32, !!(ir & ubit), !!(ir & vbit)) << 32; break;
+		case FML: a_val = (uint64_t)fp_mul(v, b_val >> 32, c_val) << 32; break;
+		case FDV: a_val = (uint64_t)fp_div(v, b_val >> 32, c_val) << 32; break;
 		}
 		sreg(v, a, a_val);
 	} else if ((ir & qbit) == 0) { /* memory instructions */
@@ -1085,6 +1202,10 @@ static int load(char *file, uint64_t *m, size_t length, unsigned is_hex) {
 	return fclose(in) < 0 ? -1 : 0;
 }
 
+int tests(void) {
+	return 0;
+}
+
 /* Adapted from: <https://stackoverflow.com/questions/10404448> */
 static int vm_getopt(vm_getopt_t *opt, const int argc, char *const argv[], const char *fmt) {
 	assert(opt);
@@ -1155,7 +1276,18 @@ Program : 64-bit Project Oberon-Like virtual machine\n\
 Author  : Richard James Howe (with code taken from <https://github.com/pdewacht/oberon-risc-emu/>.\n\
 Email   : howe.r.j.89@gmail.com\n\
 Repo    : <https://github.com/howerj/vm>\n\
-License : BSD (Zero Clause) (2014 Peter De Wachter, 2020 Richard James Howe)\n\
+License : ISC (2014 Peter De Wachter, 2020 Richard James Howe)\n\n\
+Options :\n\n\
+-h\tprint this help text and exit successfully\n\
+-t\trun the internal tests and return test result (1 = failure, 0 = success)\n\
+-x\tfiles are stored as text in a hex format\n\
+-D\tturn debugging on\n\
+-k file\tset file for kernel\n\
+-d file\tset file for disk image\n\
+-c num\tset number of instructions to run for (0 = run forever, default)\n\
+\n\
+This program returns zero on success and negative on failure.\n\
+\n\
 ";
 	return fprintf(output, usage, arg0);
 }
@@ -1179,12 +1311,18 @@ int main(int argc, char **argv) {
 	if (setvbuf(stdout, obuf, _IOFBF, sizeof obuf) < 0)
 		goto fail;
 
-	for (int ch = 0; (ch = vm_getopt(&opt, argc, argv, "hxDk:d:c:")) != -1; ) {
+	/* TODO: Remove 'k' and load kernel off disk via 'BIOS' */
+	for (int ch = 0; (ch = vm_getopt(&opt, argc, argv, "htxDk:d:c:")) != -1; ) {
 		switch (ch) {
 		case 'h': help(stdout, argv[0]); return 0;
 		case 'x': is_hex ^= 1; break;
 		case 'D': d.on = 1; break;
 		case 'c': cycles = atol(opt.arg); break;
+		case 't': { 
+			const int fail = tests(); 
+			fprintf(stdout, "tests passed: %s\n", fail ? "no" : "yes"); 
+			return fail; 
+		}
 		case 'k':
 			if (load(opt.arg, &v.m[0], RAM_SIZE, is_hex) < 0) {
 				fprintf(stderr, "load kernel failed: %s\n", argv[1]);
