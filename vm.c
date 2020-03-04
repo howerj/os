@@ -563,9 +563,11 @@ static int tlb_lookup(vm_t *v, uint64_t va, uint64_t *pa, int rwx) { /* 0 == fou
 			return 0;
 		}
 	}
-	/* TODO: Look in memory at the page tables (PTE - page table entry), 
-	 * the page tables will have privilege set, but the TLB can 
-	 * look at them. *OR* do it the MIPs way and thrown an exception. */
+	/* TODO: Look in memory at the page tables (PTE - page table entry),
+	 * the PTEs could be accessed by the TLB via their Physical Address,
+	 * there are other schemes involving storing the pages tables in
+	 * virtual address space...
+	 * ...*OR* do it the MIPs way and thrown an exception. */
 	return trap(v, TRAP_UNMAPPED);
 }
 
@@ -965,12 +967,12 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 	const uint64_t vbit = 0x1000000000000000ull;
 
 	uint64_t ir = 0;
-	int st = loadwx(v, v->PC * 8ull, &ir);
+	int stx = loadwx(v, v->PC * 8ull, &ir);
 
 	if (debug(v, d, ir) < 0)
 		return -1;
 
-	if (st == 0)
+	if (stx == 0)
 		v->PC++;
 	else
 		goto nop;
@@ -1021,7 +1023,7 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 		case LSL: a_val = b_val << (c_val & 63); break;
 		case ASR: a_val = arshift64(b_val, c_val & 63); break;
 		case ROR: a_val = (b_val >> (c_val & 63)) | (b_val << (-c_val & 63)); break;
-		case AND: a_val = b_val & ((ir & ubit) != 0) ? c_val : ~c_val; break;
+		case AND: a_val = (b_val & ((ir & ubit) != 0)) ? c_val : ~c_val; break;
 		case IOR: a_val = (ir & ubit) != 0 ? b_val | c_val : b_val ^ c_val; break;
 		case ADD: 
 			a_val = b_val + c_val;
@@ -1085,9 +1087,9 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 			if ((ir & vbit) == 0) {
 				st = loadw(v, address, &a_val);
 			} else {
-				uint8_t b = 0;
-				st = loadb(v, address, &b);
-				a_val = b;
+				uint8_t byte = 0;
+				st = loadb(v, address, &byte);
+				a_val = byte;
 			}
 			sreg(v, a, st == 0 ? a_val : 0);
 		} else {
@@ -1125,7 +1127,7 @@ static int step(vm_t *v, debug_t *d) { /* returns: 0 == ok, 1 = trap, -1 = simul
 
 	return 0;
 nop:
-	if (debug(v, d, st) < 0)
+	if (debug(v, d, stx) < 0)
 		return -1;
 	return 1;
 }
