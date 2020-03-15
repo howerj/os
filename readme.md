@@ -67,8 +67,6 @@ host utilities. These utilities would be needed to get data in and out of the
 system, so would be another important step. I plan to make a simple throw away
 file system before moving to something better, perhaps like [littlefs][].
 
-
-
 ## To Do
 
 * [ ] Add project documentation
@@ -135,6 +133,11 @@ features could be added as a library
 * <https://en.wikipedia.org/wiki/MIPS_architecture>
 * <https://github.com/andrewchambers/cmips> (copy MIPS MMU?)
 * <https://github.com/pdewacht/oberon-risc-emu>
+* <https://dlbeer.co.nz/articles/packet.html>
+* Simple Database Stuff: <http://notes.eatonphil.com/database-basics.html>
+* Simple Database Stuff: <https://github.com/eatonphil/gosql>
+* <https://github.com/littlevgl/lvgl>
+* Small GUI library: <https://github.com/idea4good/GuiLite>
 
 Additional system calls:
 
@@ -341,9 +344,6 @@ from file names. Or at least if they are present, which they would need to be
 when mounting foreign file systems, it would be required to use escape
 characters to refer to those banned characters. The reason for this is because
 it would make utilities that deal with files in bulk less brittle.
-
-
-
 
 * Redesigning HTTPS, MQTT, IRC, Email, around the 9p-like protocol.
 * Implement everything as a library first
