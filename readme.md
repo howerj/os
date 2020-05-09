@@ -9,14 +9,6 @@
 | Website   | <https://github.com/howerj/vm>             |
 
 
-	  _______ _             _______     _______ _______ ______ __  __ 
-	 |__   __| |           / ____\ \   / / ____|__   __|  ____|  \/  |
-	    | |  | |__   ___  | (___  \ \_/ / (___    | |  | |__  | \  / |
-	    | |  | '_ \ / _ \  \___ \  \   / \___ \   | |  |  __| | |\/| |
-	    | |  | | | |  __/  ____) |  | |  ____) |  | |  | |____| |  | |
-	    |_|  |_| |_|\___| |_____/   |_| |_____/   |_|  |______|_|  |_|
-
-
 **This is a work in progress, it is liable to not be complete, not work, or not
 make sense**
 
@@ -96,8 +88,13 @@ file system before moving to something better, perhaps like [littlefs][].
 * 64-bit only
 * The language would have a much larger series of libraries, and language
 features could be added as a library
+* A System Object, common to the libraries as an optional argument to functions
+that would allow control over the allocator used and the arena it allocates in,
+logging behavior, abort behavior, and when the function should yield if at all
+so it can be used in a cooperative multithreaded program. 
 
 ## Major new language features:
+
 * Multiple return values
 * Function overloading
 * Allow functions that are not nested to be returned from functions as a
@@ -138,6 +135,7 @@ features could be added as a library
 * Simple Database Stuff: <https://github.com/eatonphil/gosql>
 * <https://github.com/littlevgl/lvgl>
 * Small GUI library: <https://github.com/idea4good/GuiLite>
+* <https://github.com/zavg/linux-0.01>
 
 Additional system calls:
 
@@ -370,6 +368,9 @@ it would make utilities that deal with files in bulk less brittle.
   - Designed to be run on an FPGA
 * Crypto stuff
   -
+* Stable kernel API/ABI
+  - 'arbitrary' system call, like 'ioctl', could use 'tame' in all installed
+  applications to prevent its use in the field.
 * Kernel: micro vs monolithic kernel
   - Reincarnation server
 * Plan: How to boot strap the system
@@ -384,6 +385,46 @@ it would make utilities that deal with files in bulk less brittle.
   a selectable color and a transparent 'color'. This should make icons very
   small. The same should apply to coloring of the GUI elements, a simple,
   minimalist coloring scheme (perhaps 4 colors, for example).
+* Apps vs system utilities and packages
+  - The system would have an application store like mechanism already thought
+  out and in place.
+  - An 'app' would be a single file application that would be a database
+    containing the executable, any configuration files, assets, and any
+    saved data.
+  - 'tame' and 'unveil' system calls would be used to set permissions,
+  which would aim to be as restrictive as possible. If an application desires
+  access to location, the file system, or contacts, those information feeds
+  could be restricted, faked, or revoked easily.
+* Bittorrent replacement with online code/rateless erasure code, and other
+  peer-to-peer stuff for serving web-content.
+* Image formats; FLIF? <https://flif.info/>
+
+### Networked collaboration
+
+* Editing other peoples documents, write about this.
+
+### Browser replacement
+
+* A replacement for the web-browser/HTTP/HTML/CS/Javascript
+
+Instead of just reimplementing the current browser eco-system a replacement
+for the current system could be made, the current paradigm could be improved
+incrementally with some fairly minor conceptual changes, using a protocol
+similar to the 9p protocol that is secure by default (using opportunistic
+encryption if necessary) that was used to serve documents that were formatted
+with an S-Expression based markup language (or perhaps the browser could also
+serve markdown based files as well as an exception...they are very common, but
+markdown with a formal grammar for the format), perhaps a Lisp could be used
+instead of Javascript, the CSS equivalent would naturally be S-Expression
+based also. 
+
+These improvements are all minor. The major improvement would be in
+integrating and allowing the user to access peer-to-peer content without using
+a special client to do so, so accessing a resource such as a video would not
+put massive costs on the server in terms of both bandwidth and storage, the
+consumers of the content would provide a bit of their storage and bandwidth to
+peers when accessing a Uniform Resource Name. This needs to be integrated into
+the browser for it to work. This is certainly not a trivial task!
 
 [Oberon]: http://www.projectoberon.com/ 
 [dd]: https://en.wikipedia.org/wiki/Dd_%28Unix%29
