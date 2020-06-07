@@ -6,10 +6,11 @@ TARGET=vm
 
 all: ${TARGET}
 
-run: ${TARGET}
+run: ${TARGET} disk.img
 	./${TARGET} disk.img
 
 %.img: %.hex hexy
+	./hexy $< $@
 
 clean:
 	rm -fv ${TARGET} pas *.o *.a *.exe

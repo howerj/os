@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
 	FILE *in = fopen_or_die(argv[1], "rb"), *out = fopen_or_die(argv[2], "wb");
 
 	uint64_t u = 0;
-	while (fscanf(in, "%"PRIx64, &u) != 1) {
+	while (fscanf(in, "%"PRIx64, &u) == 1) {
 		errno = 0;
 		if (1 != fwrite(&u, sizeof u, 1, out)) {
 			(void)fprintf(stderr, "unable to write word: %s\n", strerror(errno));
