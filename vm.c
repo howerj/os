@@ -9,11 +9,7 @@
  *   portable C code.
  * - Some of the I/O is more realistic than others, the Virtual Machine is
  *   designed so that it should be possible to port to an FPGA unaltered,
- *   even if it would be difficult. 
- * - Tracing could be added, but it is normally less useful once the system
- *   is up and running.
- *
- */
+ *   even if it would be difficult. */
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -31,13 +27,13 @@ typedef struct vm {
 	uint64_t m[1024 * 1024];
 	uint64_t pc, tos, sp, flags;
 	
-	uint64_t tick, timer, uart;
+	uint64_t tick, timer, uart, tron, trap;
 	uint64_t disk[1024 * 1024], dbuf[1024], dstat, dp;
 	uint64_t traps[256];
 	uint64_t tlb_va[64], tlb_pa[64], tlb;
 	uint64_t rtc_last_s, rtc_s, rtc_frac_s;
 	FILE *in, *out, *trace;
-	int halt, trap;
+	int halt;
 } vm_t;
 
 #define MEMORY_START (0x0000080000000000ull)
@@ -112,6 +108,8 @@ static int wrap_putch(vm_t *v, const int ch) {
 static int trace(vm_t *v, const char *fmt, ...) {
 	assert(v);
 	assert(fmt);
+	if (bit_get(v->tron, 0) == 0)
+		return 0;
 	if (!v->trace)
 		return 0;
 	va_list ap;
@@ -139,14 +137,18 @@ static int trap(vm_t *v, uint64_t addr, uint64_t val) {
 		return -1;
 	}
 	v->trap++;
-	if (addr != TADDR) {
-		push(v, v->flags);
-		push(v, v->pc);
-		push(v, v->tos);
-		push(v, val);
-	} else {
+	if (addr == TADDR) {
 		v->tos = val;
-	}
+	} else {
+		if (push(v, v->flags))
+			return 1;
+		if (push(v, v->pc))
+			return 1;
+		if (push(v, v->tos))
+			return 1;
+		if (push(v, val))
+			return 1;
+	} 
 
 	bit_set(&v->flags, PRIV);
 
@@ -195,6 +197,7 @@ static int load_phy(vm_t *v, uint64_t addr, uint64_t *val) {
 		case 23: *val = 0; return 0;
 		case 24: *val = v->rtc_s; return 0;
 		case 25: *val = v->rtc_frac_s; return 0;
+		case 26: *val = v->tron; return 0;
 		}
 
 		if (within(addr, 1024, 1024 + NELEMS(v->traps))) {
@@ -344,6 +347,7 @@ static int store_phy(vm_t *v, uint64_t addr, uint64_t val) {
 			 return 0;
 		case 24: v->rtc_s = val; return 0;
 		case 25: v->rtc_frac_s = val; return 0;
+		case 26: v->tron = val; return 0;
 		}
 
 		if (within(addr, 1024, 1024 + NELEMS(v->traps))) {
@@ -581,7 +585,8 @@ int main(int argc, char **argv) {
 		(void)fprintf(stderr, "usage: %s disk\n", argv[0]);
 		return 1;
 	}
-	init(&v, NULL, stdout, NULL); /* TODO: Turn tracing on/off from within the interpreter via I/O */
+	if (init(&v, NULL, stdout, stdout) < 0)
+		return 1;
 
 	const size_t sz = sizeof(v.disk) / sizeof(v.disk[0]);
 	const size_t mb = sizeof(v.disk[0]);
