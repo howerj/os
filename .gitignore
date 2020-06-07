@@ -1,5 +1,10 @@
+*.1
 *.a
-*.o
+*.dll
 *.exe
-vm
+*.img
+*.o
+*.so
 pas
+vm
+hexy

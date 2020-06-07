@@ -378,6 +378,20 @@ it would make utilities that deal with files in bulk less brittle.
   peer-to-peer stuff for serving web-content.
 * Image formats; FLIF? <https://flif.info/>
 
+### CPU Design
+
+* Easy to implement
+* Was going to be based on the CPU from project Oberon, going to use a custom
+  stack machine instead
+* Keep the CPU as simple as possible
+* Could make an even simpler CPU so it is easier to emulate; no arithmetic
+  flags, no relative jump (this complicates the software and would require
+  the linker format to keep track of each jump), fewer instructions, ...
+* It might be nice to implement the operating system for this simple virtual 
+machine and then port the system to a real machine.
+* The BIOS could be made to be more advanced, perhaps even a fully functioning
+  Forth interpreter could be included. At the moment it is quite simple.
+
 ### Networked collaboration
 
 * Editing other peoples documents, write about this.
