@@ -6,10 +6,11 @@
  * NOTES:
  * - More optional I/O could be added, such as networking, mouse, keyboard
  *   and sound, however it would need to be kept away from this (relatively)
- *   portable C code.
+ *   portable C code. Video memory could be added in a portable way.
  * - Some of the I/O is more realistic than others, the Virtual Machine is
  *   designed so that it should be possible to port to an FPGA unaltered,
  *   even if it would be difficult. */
+
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -21,21 +22,6 @@
 #include <string.h>
 #include <time.h>
 
-struct vm;
-
-typedef struct vm {
-	uint64_t m[1024 * 1024];
-	uint64_t pc, tos, sp, flags;
-	
-	uint64_t tick, timer, uart, tron, trap;
-	uint64_t disk[1024 * 1024], dbuf[1024], dstat, dp;
-	uint64_t traps[256];
-	uint64_t tlb_va[64], tlb_pa[64], tlb;
-	uint64_t rtc_last_s, rtc_s, rtc_frac_s;
-	FILE *in, *out, *trace;
-	int halt;
-} vm_t;
-
 #define MEMORY_START (0x0000080000000000ull)
 #define MEMORY_END   (MEMORY_START + (sizeof (((vm_t) { .pc = 0 }).m)/ sizeof (uint64_t)))
 #define IO_START     (0x0000040000000000ull)
@@ -45,6 +31,19 @@ typedef struct vm {
 #define PAGE         (8192ull)
 #define PAGE_MASK    (PAGE - 1ull)
 #define TLB_ADDR_MASK (0x0000FFFFFFFFFFFFull & ~PAGE_MASK)
+
+typedef struct {
+	uint64_t m[1024 * 1024];
+	uint64_t pc, tos, sp, flags;
+	
+	uint64_t tick, timer, uart, tron, trap;
+	uint64_t disk[1024 * 1024], dbuf[1024], dstat, dp;
+	uint64_t traps[256];
+	uint64_t tlb_va[64], tlb_pa[64];
+	uint64_t rtc_last_s, rtc_s, rtc_frac_s;
+	FILE *in, *out, *trace;
+	int halt;
+} vm_t;
 
 enum { VIRT, PRIV, INTR,/* <- privileged flags */ N = 16, Z, C, V,  };
 enum { TEMPTY, TIMPL, TDIV0, TINST, TADDR, TALIGN, TPRIV, TPROTECT, TUNMAPPED, TTIMER, TDISK, };
@@ -139,7 +138,7 @@ static int trap(vm_t *v, uint64_t addr, uint64_t val) {
 	v->trap++;
 	if (addr == TADDR) {
 		v->tos = val;
-	} else {
+	} else { /* TODO: Only push PC? */
 		if (push(v, v->flags))
 			return 1;
 		if (push(v, v->pc))
@@ -201,14 +200,14 @@ static int load_phy(vm_t *v, uint64_t addr, uint64_t *val) {
 		}
 
 		if (within(addr, 1024, 1024 + NELEMS(v->traps))) {
-			*val = v->traps[addr];
+			*val = v->traps[addr - 1024];
 			return 0;
 		}
 		
 		BUILD_BUG_ON(2048 < 1024 + NELEMS(v->traps));
 
 		if (within(addr, 2048, 2048 + NELEMS(v->dbuf))) {
-			*val = v->dbuf[addr];
+			*val = v->dbuf[addr - 2048];
 			return 0;
 		}
 
@@ -337,7 +336,7 @@ static int store_phy(vm_t *v, uint64_t addr, uint64_t val) {
 				}
 			}
 
-			 return 0;
+			return 0;
 		case 23: /* enable bit (0) not used */
 			 if (bit_get(val, 1)) {
 				const uint64_t cur_s = time(NULL);
@@ -351,14 +350,14 @@ static int store_phy(vm_t *v, uint64_t addr, uint64_t val) {
 		}
 
 		if (within(addr, 1024, 1024 + NELEMS(v->traps))) {
-			v->traps[addr] = val;
+			v->traps[addr - 1024] = val;
 			return 0;
 		}
 		
 		BUILD_BUG_ON(2048 < 1024 + NELEMS(v->traps));
 
 		if (within(addr, 2048, 2048 + NELEMS(v->dbuf))) {
-			v->dbuf[addr] = val;
+			v->dbuf[addr - 2048] = val;
 			return 0;
 		}
 
@@ -406,8 +405,7 @@ static int pop(vm_t *v, uint64_t *val) {
 
 static int cpu(vm_t *v) {
 	assert(v);
-	const uint64_t next = v->pc + sizeof(uint64_t);
-	uint64_t instr = 0;
+	uint64_t instr = 0, next = v->pc + sizeof(uint64_t);
 	if (load(v, v->pc, &instr, EXECUTE))
 		return 1;
 	if (trace(v, "+pc,%"PRIx64",%"PRIx64",%"PRIx64",", v->pc, instr, v->tos) < 0)
@@ -462,7 +460,7 @@ static int cpu(vm_t *v) {
 	case 12: c = a * b;  break;
 	case 13: if (!b) return trap(v, TDIV0, 0); c = a / b; break;
 	case 14: c = v->pc; break;
-	case 15: v->pc = b; break;
+	case 15: next = b; break;
 	case 16: c = v->sp; break;
 	case 17: v->sp = b; break;
 	case 18: c = v->flags; break;
@@ -483,17 +481,7 @@ static int cpu(vm_t *v) {
 	case 25: if (storeb(v, b, a)) return 1; break;
 	case 26: if (tlb_flush_single(v, b, &c)) return 1; break;
 	case 27: if (tlb_flush_all(v)) return 1; break;
-	case 28: 
-		if (bit_get(v->flags, PRIV) == 0) 
-			return trap(v, TPRIV, op);
-		c = v->tlb;
-		break;
-	case 29: 
-		if (bit_get(v->flags, PRIV) == 0) 
-			return trap(v, TPRIV, op);
-		v->tlb = b;
-		break;
-	case 30:
+	case 28:
 		if (bit_get(v->flags, PRIV) == 0) 
 			return trap(v, TPRIV, op);
 		const int va = bit_get(a, 15);
@@ -527,7 +515,6 @@ next:
 
 static int interrupt(vm_t *v) {
 	assert(v);
-
 	if (v->timer) {
 		if (v->tick >= v->timer) {
 			v->tick = 0;
@@ -536,7 +523,6 @@ static int interrupt(vm_t *v) {
 		}
 	}
 	v->tick++;
-
 	return 0;
 }
 

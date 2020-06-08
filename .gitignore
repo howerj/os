@@ -2,9 +2,11 @@
 *.a
 *.dll
 *.exe
+*.hex
 *.img
 *.o
 *.so
+asm
+hexy
 pas
 vm
-hexy

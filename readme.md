@@ -4,7 +4,7 @@
 | --------- | ------------------------------------------ |
 | Author    | Richard James Howe                         |
 | Copyright | 2020 Richard James Howe                    |
-| License   | BSD (Zero Clause)                          |
+| License   | MIT                                        |
 | Email     | howe.r.j.89@gmail.com                      |
 | Website   | <https://github.com/howerj/vm>             |
 
@@ -27,6 +27,10 @@ Project goals:
   - Make a busybox like executable which contains the basic utilities, the
   system compiler, a TCL like system shell, an assembler, a Forth interpreter,
   and more!
+* Make the system self hosting, this will involve making utilities to pack and
+  unpack the disk image.
+* Design a database to be used as an executable format, file system,
+  archive format, and more. This should be similar to sqlite.
 * Port the system to an FPGA
   - My Forth CPU system <https://github.com/howerj/forth-cpu> could be used as
     basis for some of the peripherals

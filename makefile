@@ -12,5 +12,8 @@ run: ${TARGET} disk.img
 %.img: %.hex hexy
 	./hexy $< $@
 
+%.hex: %.asm asm
+	./asm $< $@
+
 clean:
 	rm -fv ${TARGET} pas *.o *.a *.exe
