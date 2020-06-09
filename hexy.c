@@ -1,3 +1,8 @@
+/* Convert a text file consisting of 64-bit hex numbers into a binary file
+ * Author: Richard James Howe
+ * License: MIT
+ * Repository: https//github.com/howerj/vm */
+
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>

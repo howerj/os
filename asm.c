@@ -1,6 +1,11 @@
 /* Throw away assembler, it would have probably been easier to make a Forth
  * interpreter, and more useful, for example, see
- * <https://github.com/howerj/third> which is a de-obfuscated IOCCC winner. */
+ * <https://github.com/howerj/third> which is a de-obfuscated IOCCC winner.
+ *
+ * Author: Richard James Howe
+ * License: MIT
+ * Repository: https//github.com/howerj/vm */
+
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -47,7 +52,7 @@ typedef struct {
 
 static int warn(vm_t *v, const char *fmt, ...) {
 	if (!(v->err))
-		return 0;
+		return -1;
 	va_list ap;
 	const int r1 = fprintf(v->err, "%u: ", v->line);
 	va_start(ap, fmt);
@@ -55,8 +60,7 @@ static int warn(vm_t *v, const char *fmt, ...) {
 	va_end(ap);
 	const int r3 = fputc('\n', v->err);
 	if (r1 < 0 || r2 < 0 || r3 < 0)
-		return -1;
-	//return r1 + r2 + 1;
+		return -2;
 	return -1;
 }
 

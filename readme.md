@@ -12,6 +12,17 @@
 **This is a work in progress, it is liable to not be complete, not work, or not
 make sense**
 
+# To Do: Phase 1
+
+* [x] Get basic VM working
+* [ ] Revisit VM design after making compiler/kernel
+* [x] Make a assembler for the VM
+* [ ] Make a pascal compiler for the VM
+* [ ] Make a bootloader
+* [ ] Start work on a Unix kernel for the VM
+
+# Goals
+
 Project goals:
 * Make an Oberon like language that compiles to a virtual machine that could,
   in principle, be ported to an FPGA.
