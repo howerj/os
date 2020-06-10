@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-std=c99 -Wall -Wextra -pedantic -O2 -g
 TARGET=vm
 
-.PHONY: run clean
+.PHONY: all run clean
 
 all: ${TARGET}
 
@@ -18,5 +18,9 @@ run: ${TARGET} disk.img
 %.hex: %.pas pas
 	./pas $< $@
 
+pas: pas.c
+
+asm: asm.c
+
 clean:
-	rm -fv ${TARGET} asm hexy pc *.o *.a *.exe
+	rm -fv ${TARGET} asm hexy pas *.o *.a *.exe
