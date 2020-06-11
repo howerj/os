@@ -7,6 +7,8 @@
  * - More optional I/O could be added, such as networking, mouse, keyboard
  *   and sound, however it would need to be kept away from this (relatively)
  *   portable C code. Video memory could be added in a portable way.
+ * - A proper BIOS should be developed (perhaps as a complete Forth 
+ *   interpreter) that can either boot from disk or from serial.
  * - Some of the I/O is more realistic than others, the Virtual Machine is
  *   designed so that it should be possible to port to an FPGA unaltered,
  *   even if it would be difficult. */
@@ -138,7 +140,7 @@ static int trap(vm_t *v, uint64_t addr, uint64_t val) {
 	v->trap++;
 	if (addr == TADDR) {
 		v->tos = val;
-	} else { /* TODO: Only push PC? */
+	} else { /* TODO: Only save program counter and to it by saving it to a link register */
 		if (push(v, v->flags))
 			return 1;
 		if (push(v, v->pc))
@@ -455,7 +457,7 @@ static int cpu(vm_t *v) {
 	case  7: c = a + b; bit_cnd(&v->flags, C, c < a); bit_cnd(&v->flags, V, ((c ^ a) & (c ^ b)) >> 63); break;
 	case  8: a -= bit_get(v->flags, C); /* fall-through */
 	case  9: c = a - b; bit_cnd(&v->flags, C, c > a); bit_cnd(&v->flags, V, ((c ^ a) & (c ^ b)) >> 63);  break;
-	case 10: c = a << b; break;
+	case 10: c = a << b; break; /* rotate might be useful, same with shift through carry, arithmetic shift, ... */
 	case 11: c = a >> b; break;
 	case 12: c = a * b;  break;
 	case 13: if (!b) return trap(v, TDIV0, 0); c = a / b; break;

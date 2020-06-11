@@ -4,7 +4,7 @@ TARGET=vm
 
 .PHONY: all run clean
 
-all: ${TARGET}
+all: ${TARGET} pas asm hexy
 
 run: ${TARGET} disk.img
 	./${TARGET} disk.img
