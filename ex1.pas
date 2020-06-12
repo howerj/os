@@ -12,36 +12,35 @@ TODO
 module test;
 import system;
 
+type time:uint, seconds:b;
 const a:c = 3, c:string = "hello";
 var z:uint, y:uint;
 
 procedure square (a, b) {
 	var r;
-	{
-		r := a * b
-	}
+	r := a * b;
 }
 
 procedure fn2:uint (b:uint, c:uint) {
 }
 
-{
-	a := 4 / 3 + 9;
-	;
-	a := 9;
-	while a # 18 { a := a + 1 };
+a := 4 / 3 + 9;
+;
+a := 9;
+while a # 18 { a := a + 1 };
 
-	if a = 0 {
-	};
-	
+square (4);
 
-	if a = 1 {
-	} else if a = 2 {
-	} else if a = 3 {
-	} else if a = 4 {
-	};
+a.b[2]:=2;
 
-}.
+if square(4) = 16 { };
+
+if a = 1 { }
+else if a = 2 { }
+else if a = 3 { }
+else if a = 4 { };
+
+.
 
 Anything goes here.
 

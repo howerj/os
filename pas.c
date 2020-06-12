@@ -9,7 +9,8 @@
  * TODO: Start by modifying a PL/0 or Oberon grammar, add multiple returns,
  * some compile intrinsics, modules, function arguments, nested procedures,
  * records, arrays and strings. Some basic optimizations should probably done
- * one the code, see <https://en.wikipedia.org/wiki/Static_single_assignment_form>. */
+ * one the code, see <https://en.wikipedia.org/wiki/Static_single_assignment_form>.
+ * TODO: Come up with a better name? Uberon? */
 
 #include <assert.h>
 #include <ctype.h>
@@ -48,7 +49,7 @@ typedef struct {
 	uint64_t start, here;
 	uint64_t m[MEMORY_SIZE];
 	unsigned line;
-	ast_t *as;
+	ast_t *as, *cur;
 	FILE *in, *out, *err;
 	/* lexer */
 	char buf[512];
@@ -111,24 +112,26 @@ static void *reallocate(void *p, size_t sz) {
 
 enum {
 	END, 
-	INT, STR, IDENT, LPAR, RPAR, LBRC, RBRC, ASSIGN, SEMI, DOT, COLON, COMMA,
+	INT, STR, IDENT, LPAR, RPAR, LBRC, RBRC, SLBRC, SRBRC, ASSIGN, SEMI, DOT, COLON, COMMA,
 	PLUS, MINUS, LSHIFT, RSHIFT, MUL, DIV, EQ, NEQ, GT, GTE, LT, LTE, AND, OR, XOR, INVERT, /* rotate? */
 	EOI,
 
 	IF /* <- first keyword */, ELSE, DO, WHILE, PROCEDURE, FOR, VAR, CONST, BREAK, CONTINUE, ASSERT, IMPLIES,
 	TYPE, MODULE, IMPORT,
-	GET, PUT, BYTES, SIZE, ADDR,
+	GET, PUT, BYTES, SIZE, ADDR, TRAP, RECORD, ARRAY, POINTER, U64, S64, U8, 
+	OF, ORD, TO, BY, NIL, TRUE, FALSE,
 };
 
 static const char *keywords[] = {
 	"", 
-	"int", "str", "id", "(", ")", "{", "}", ":=", ";", ".", ":", ",",
+	"int", "str", "id", "(", ")", "{", "}", "[", "]", ":=", ";", ".", ":", ",",
 	"+", "-", "<<", ">>", "*", "/", "=", "#", ">", ">=", "<", "<=", "&", "|", "^", "~",
 	"EOI",
 	/* actual keywords */
 	"if", "else", "do", "while", "procedure", "for", "var", "const", "break", "continue", "assert", "implies",
 	"type", "module", "import",
-	"get", "put", "bytes", "size", "addr", /* trap, integer, other instrinsics, built-in types */
+	"get", "put", "bytes", "size", "addr", "trap", "record", "array", "pointer", "uint", "int", "byte", 
+	"of", "ord", "to", "by", "nil", "true", "false",
 };
 
 static int digit(int ch, int base) {
@@ -174,7 +177,9 @@ again:
 	case ',': c->type = COMMA;  break;
 	case '}': c->type = RBRC;   break;
 	case '{': c->type = LBRC;   break;
-	case ')': c->type = RPAR; break;
+	case ']': c->type = SRBRC;  break;
+	case '[': c->type = SLBRC;  break;
+	case ')': c->type = RPAR;   break;
 	case '(': ch = fgetc(c->in);
 		if (ch == '*') { /* comment */
 			for (;;) {
@@ -299,7 +304,7 @@ unget:
 static int accept(compile_t *c, int sym) {
 	assert(c);
 	if (sym == c->type) {
-		if (sym != EOI && sym != DOT)
+		if (sym != EOI)
 			if (lexer(c) < 0)
 				return -1;
 		return 1;
@@ -327,6 +332,22 @@ static int any(compile_t *c, ...) {
 	return r;
 }
 
+enum { /* TODO: Merge with token enumerations */
+	PROGRAM, BLOCK, STATEMENT, TYPELIST, CONSTLIST, VARLIST, PROCLIST, CONSTANT, VARIABLE, FUNCTION, 
+	CONDITIONAL, LIST, CONDITION, EXPRESSION,
+	UNARY_EXPRESSION, TERM, FACTOR, IDENTIFIER, NUMBER, STRING, TYPEDECL, TYPEUSAGE, IMPORTLIST,
+	IF_STATEMENT, WHILE_STATEMENT, DO_STATEMENT, FOR_STATEMENT, ASSERT_STATEMENT, IMPLIES_STATEMENT, ASSIGN_STATEMENT, CALL_STATEMENT,
+	DESIGNATOR, EXPRLIST, QUALIDENT, SELECTOR, ARRAY_TYPE, RECORD_TYPE, POINTER_TYPE, PROCEDURE_TYPE,
+};
+
+static char *rules[] = {
+	"program", "block", "statement", "typelist", "constlist", "varlist", "proclist", "const", "var", "procedure",
+	"condition", "list", "condition", "expression", "unary", "term", "factor",
+	"identifier", "number", "string", "typedecl", "typeusage", "importlist",
+	"if-statement", "while-statement", "do-statement", "for-statement", "assert-statement", "implies-statement", "assign-statement", "call-statement",
+	"designator", "exprlist", "qualident", "selector", "array-type", "record-type", "pointer-type", "procedure-type",
+};
+
 static int expect(compile_t *c, int sym) {
 	assert(c);
 	const int r = accept(c, sym);
@@ -335,7 +356,7 @@ static int expect(compile_t *c, int sym) {
 	/* TODO: insert expected token, mark as failure, and continue parsing,
 	 * also, print syntax tree? Another way of dealing with failure would
 	 * be to keep going until a one of ";]})" is reached. */
-	return warn(c, "syntax error (%d,%d) -- expected '%s' and got '%s'", sym, c->type, keywords[sym], keywords[c->type]);
+	return warn(c, "syntax error in '%s' -- expected '%s' and got '%s'", rules[c->cur->type], keywords[sym], keywords[c->type]);
 }
 
 static inline int use(compile_t *c, ast_t *a) { /* move ownership of string from lexer to parse tree */
@@ -348,18 +369,6 @@ static inline int use(compile_t *c, ast_t *a) { /* move ownership of string from
 	return c->fail;
 }
 
-enum {
-	PROGRAM, BLOCK, STATEMENT, TYPELIST, CONSTLIST, VARLIST, PROCLIST, CONSTANT, VARIABLE, FUNCTION, 
-	CONDITIONAL, LIST, CONDITION, EXPRESSION,
-	UNARY_EXPRESSION, TERM, FACTOR, IDENTIFIER, NUMBER, STRING, TYPEDECL, TYPEUSAGE, IMPORTLIST,
-};
-
-static char *rules[] = {
-	"program", "block", "statement", "typelist", "constlist", "varlist", "proclist", "const", "var", "procedure",
-	"condition", "list", "condition", "expression", "unary", "term", "factor",
-	"identifier", "number", "string", "typedecl", "typeusage", "importlist",
-};
-
 static ast_t *ast_new(compile_t *c, ast_t **ret, int type, size_t count) {
 	assert(c);
 	assert(ret);
@@ -369,6 +378,7 @@ static ast_t *ast_new(compile_t *c, ast_t **ret, int type, size_t count) {
 	r->type     = type;
 	r->children = count;
 	r->line     = c->line;
+	c->cur      = r;
 	*ret        = r;
 	return r;
 }
@@ -421,7 +431,7 @@ static int unary_expression(compile_t *c, ast_t **r) { /* ["+"|"-"] term express
 	assert(r);
 	ast_t *a = ast_new(c, r, UNARY_EXPRESSION, 2);
 	if (accept(c, MINUS)) {
-		a->type = c->prev;
+		a->token = c->prev;
 	} else {
 		(void)accept(c, PLUS);
 	}
@@ -457,21 +467,85 @@ static int string(compile_t *c, ast_t **r) {
 	return use(c, a);
 }
 
-static int factor(compile_t *c, ast_t **r) { /* ident | number | string | "(" unary-expression ")" */
+static int exprlist(compile_t *c, ast_t **r) { /* expression { "," expression } */
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, EXPRLIST, 1);
+	if (unary_expression(c, &a->as[0]) < 0)
+		return -1;
+	for (size_t i = 1; accept(c, COMMA); i++) {
+		ast_grow(a);
+		if (unary_expression(c, &a->as[i]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int qualident(compile_t *c, ast_t **r) { /* ident [ "." ident ] */
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, QUALIDENT, 1);
+	if (identifier(c, &a->as[0]) < 0)
+		return -1;
+	if (accept(c, DOT)) {
+		ast_grow(a);
+		if (identifier(c, &a->as[1]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int selector(compile_t *c, ast_t **r) { /* ["[" exprlist "]"] */
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, SELECTOR, 0);
+	for (size_t i = 0; accept(c, SLBRC); i++) {
+		ast_grow(a);
+		if (exprlist(c, &a->as[i]) < 0)
+			return -1;
+		if (expect(c, SRBRC) < 0)
+			return -1;
+	}
+	/* optional */
+	return 0;
+}
+
+static int designator(compile_t *c, ast_t **r) { /* qualident selector? */
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, DESIGNATOR, 2);
+	if (qualident(c, &a->as[0]) < 0)
+		return -1;
+	return selector(c, &a->as[1]);
+}
+
+static int factor(compile_t *c, ast_t **r) { /* number | string | "nil" | "true" | "false" | "(" unary-expression ")" | "~" factor */
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, FACTOR, 1);
-	if (peek(c, IDENT))
-		return identifier(c, &a->as[0]);
+	if (any(c, NIL, TRUE, FALSE, END))
+		return use(c, a);
 	if (peek(c, INT))
 		return number(c, &a->as[0]);
 	if (peek(c, STR))
 		return string(c, &a->as[0]);
-	if (expect(c, LPAR) < 0)
+	if (accept(c, INVERT)) {
+		use(c, a);
+		return factor(c, &a->as[0]);
+	}
+	if (accept(c, LPAR)) {
+		if (unary_expression(c, &a->as[0]) < 0)
+			return -1;
+		return expect(c, RPAR);
+	}
+	if (designator(c, &a->as[0]) < 0)
 		return -1;
-	if (unary_expression(c, &a->as[0]) < 0)
-		return -1;
-	return expect(c, RPAR);
+	if (accept(c, LPAR)) {
+		if (exprlist(c, &a->as[1]) < 0)
+			return -1;
+		return expect(c, RPAR);
+	}
+	return 0;
 }
 
 static int term(compile_t *c, ast_t **r) {  /* factor {("*"|"/") factor}. */
@@ -481,7 +555,7 @@ static int term(compile_t *c, ast_t **r) {  /* factor {("*"|"/") factor}. */
 	if (factor(c, &a->as[0]) < 0)
 		return -1;
 	if (accept(c, MUL) || accept(c, DIV)) {
-		a->type = c->prev;
+		a->token = c->prev;
 		return factor(c, &a->as[1]);
 	}
 	return 0;
@@ -491,8 +565,8 @@ static int expression(compile_t *c, ast_t **r) {  /* { ("+"|"-"...) term}. */
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, EXPRESSION, 1);
-	if (any(c, PLUS, MINUS, AND, OR, XOR, END)) {
-		a->type = c->prev;
+	if (any(c, PLUS, MINUS, AND, OR, XOR, LSHIFT, RSHIFT, END)) {
+		a->token = c->prev;
 		return term(c, &a->as[0]);
 	}
 	return 0;
@@ -505,7 +579,7 @@ static int condition(compile_t *c, ast_t **r) {
 	if (unary_expression(c, &a->as[0]) < 0)
 		return -1;
 	if (any(c, EQ, NEQ, GTE, GT, LTE, LT, END)) {
-		a->type = c->prev;
+		a->token = c->prev;
 		return unary_expression(c, &a->as[1]);
 	}
 	return warn(c, "expected conditional");
@@ -527,18 +601,63 @@ static int list(compile_t *c, ast_t **r) {
 	return 0;
 }
 
+static int array_type(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, ARRAY_TYPE, 2);
+	return 0;
+}
+
+static int record_type(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, RECORD_TYPE, 2);
+	return 0;
+}
+
+static int pointer_type(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, POINTER_TYPE, 2);
+	return 0;
+}
+
+static int procedure_type(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, PROCEDURE_TYPE, 2);
+	return 0;
+}
+
 static int typeusage(compile_t *c, ast_t **r) {
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, TYPEUSAGE, 1);
-	return identifier(c, &a->as[0]);
+	if (accept(c, S64))
+		return use(c, a);
+	if (accept(c, U64))
+		return use(c, a);
+	if (accept(c, U8))
+		return use(c, a);
+	return qualident(c, &a->as[0]);
 }
 
 static int typedecl(compile_t *c, ast_t **r) {
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, TYPEDECL, 1);
-	return identifier(c, &a->as[0]);
+	if (identifier(c, &a->as[0]) < 0)
+		return -1;
+	if (expect(c, COLON) < 0)
+		return -1;
+	if (accept(c, S64))
+		return use(c, a);
+	if (accept(c, U64))
+		return use(c, a);
+	if (accept(c, U8))
+		return use(c, a);
+	ast_grow(a);
+	return qualident(c, &a->as[1]);
 }
 
 static int typelist(compile_t *c, ast_t **r) {
@@ -566,7 +685,7 @@ static int variable(compile_t *c, ast_t **r) {
 	return 0;
 }
 
-static int varlist(compile_t *c, ast_t **r) { /* TODO: make varlist entirely optional? */
+static int varlist(compile_t *c, ast_t **r) {
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, LIST, 1);
@@ -635,6 +754,7 @@ static int function(compile_t *c, ast_t **r) {
 	return expect(c, RBRC);
 }
 
+
 static int proclist(compile_t *c, ast_t **r) {
 	assert(c);
 	assert(r);
@@ -649,79 +769,140 @@ static int proclist(compile_t *c, ast_t **r) {
 	return 0;
 }
 
+static int assign_statement(compile_t *c, ast_t **r, ast_t *first) {
+	assert(c);
+	assert(r);
+	assert(first);
+	ast_t *a = ast_new(c, r, ASSIGN_STATEMENT, 2);
+	a->as[0] = first;
+	if (expect(c, ASSIGN) < 0)
+		return -1;
+	return unary_expression(c, &a->as[1]);
+}
+
+static int call_statement(compile_t *c, ast_t **r, ast_t *first) {
+	assert(c);
+	assert(r);
+	assert(first);
+	ast_t *a = ast_new(c, r, CALL_STATEMENT, 2);
+	a->as[0] = first;
+	if (expect(c, LPAR) < 0)
+		return -1;
+	if (exprlist(c, &a->as[1]) < 0)
+		return -1;
+	return expect(c, RPAR);
+}
+
+static int assert_statement(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, ASSERT_STATEMENT, 1);
+	return condition(c, &a->as[0]);
+}
+
+static int implies_statement(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, IMPLIES_STATEMENT, 2);
+	if (condition(c, &a->as[0]) < 0)
+		return -1;
+	if (expect(c, COMMA) < 0)
+		return -1;
+	return condition(c, &a->as[1]);
+}
+
+static int do_statement(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, DO_STATEMENT, 2);
+	if (statement(c, &a->as[0]) < 0)
+		return -1;
+	if (expect(c, WHILE) < 0)
+		return -1;
+	if (condition(c, &a->as[1]) < 0)
+		return -1;
+	return 0;
+}
+
+static int while_statement(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, WHILE_STATEMENT, 2);
+	if (condition(c, &a->as[0]) < 0)
+		return -1;
+	/* need "do"? */
+	return statement(c, &a->as[1]);
+}
+
+static int if_statement(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, IF_STATEMENT, 2);
+	if (condition(c, &a->as[0]) < 0)
+		return -1;
+	if (statement(c, &a->as[1]) < 0)
+		return -1;
+	for (size_t i = 2; accept(c, ELSE); i++) {
+		ast_grow(a);
+		if (accept(c, IF)) {
+			ast_grow(a);
+			if (condition(c, &a->as[i + 0]) < 0)
+				return -1;
+			if (statement(c, &a->as[i + 1]) < 0)
+				return -1;
+			i++;
+			continue;
+		}
+		if (statement(c, &a->as[i]) < 0)
+			return -1;
+		break;
+	}
+	return 0;
+}
+
+static int for_statement(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, FOR_STATEMENT, 3);
+	if (identifier(c, &a->as[0]) < 0)
+		return -1;
+	if (expect(c, ASSIGN) < 0)
+		return -1;
+	if (unary_expression(c, &a->as[1]) < 0)
+		return -1;
+	if (expect(c, TO) < 0)
+		return -1;
+	if (unary_expression(c, &a->as[2]) < 0)
+		return -1;
+	if (accept(c, BY)) {
+		ast_grow(a);
+		if (unary_expression(c, &a->as[3]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 static int statement(compile_t *c, ast_t **r) {
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, STATEMENT, 1);
-	a->token = -1;
 	if (peek(c, IDENT)) {
-		ast_grow(a);
-		if (identifier(c, &a->as[0]) < 0)
+		ast_t *first = NULL;
+		if (designator(c, &first) < 0) {
+			a->as[0] = first; /* make sure we don't leak */
 			return -1;
-		if (accept(c, ASSIGN)) { /* TODO: handle multiple return values */
-			a->token = c->prev;
-			return unary_expression(c, &a->as[1]);
 		}
-		/* TODO: Handle bare function calls */
-		return 0;
-	} else if (accept(c, LBRC)) { /* '{' list '}' */
-		if (list(c, &a->as[0]) < 0)
-			return -1;
-		return expect(c, RBRC);
-	} else if (accept(c, IF)) {
-		a->token = c->prev;
-		ast_grow(a);
-		if (condition(c, &a->as[0]) < 0)
-			return -1;
-		if (statement(c, &a->as[1]) < 0)
-			return -1;
-		for (size_t i = 2; accept(c, ELSE); i++) {
-			ast_grow(a);
-			if (accept(c, IF)) {
-				ast_grow(a);
-				if (condition(c, &a->as[i + 0]) < 0)
-					return -1;
-				if (statement(c, &a->as[i + 1]) < 0)
-					return -1;
-				i++;
-				continue;
-			}
-			if (statement(c, &a->as[i]) < 0)
-				return -1;
-			break;
-		}
-		return 0;
-	} else if (accept(c, WHILE)) {
-		a->token = c->prev;
-		ast_grow(a);
-		if (condition(c, &a->as[0]) < 0)
-			return -1;
-		/* need "do"? */
-		return statement(c, &a->as[1]);
-	} else if (accept(c, DO)) {
-		a->token = c->prev;
-		ast_grow(a);
-		if (statement(c, &a->as[0]) < 0)
-			return -1;
-		if (expect(c, WHILE) < 0)
-			return -1;
-		if (condition(c, &a->as[0]) < 0)
-			return -1;
-		return 0;
-	} else if (accept(c, ASSERT)) {
-		a->token = c->prev;
-		return condition(c, &a->as[0]);
-	} else if (accept(c, IMPLIES)) {
-		a->token = c->prev;
-		ast_grow(a);
-		if (condition(c, &a->as[0]) < 0)
-			return -1;
-		if (expect(c, COMMA) < 0)
-			return -1;
-		return condition(c, &a->as[1]);
-	} else {
-		/* statement is optional */
-	}
+		if (peek(c, ASSIGN))
+			return assign_statement(c, &a->as[0], first);
+		return call_statement(c, &a->as[0], first);
+	} else if (accept(c, LBRC))  { if (list(c, &a->as[0]) < 0) return -1; return expect(c, RBRC); } 
+	else if (accept(c, IF))      { return if_statement(c, &a->as[0]); }
+	else if (accept(c, FOR))     { return for_statement(c, &a->as[0]); }
+	else if (accept(c, WHILE))   { return while_statement(c, &a->as[0]); }
+	else if (accept(c, DO))      { return do_statement(c, &a->as[0]); }
+	else if (accept(c, ASSERT))  { return assert_statement(c, &a->as[0]); }
+	else if (accept(c, IMPLIES)) { return implies_statement(c, &a->as[0]); } 
+	else { /* statement is optional */ }
 	return 0;
 }
 
@@ -751,7 +932,7 @@ static int block(compile_t *c, ast_t **r) {
 	if (accept(c, PROCEDURE))
 		if (proclist(c, &a->as[3]) < 0)
 			return -1;
-	return statement(c, &a->as[4]);
+	return list(c, &a->as[4]);
 }
 
 static int importlist(compile_t *c, ast_t **r) {
@@ -889,19 +1070,6 @@ static int code(compile_t *c, ast_t *a, scope_t *s) {
 		break;
 	}
 	case STATEMENT:
-		switch (a->token) { /* TODO: Give each of these their own production rules...*/
-		case IF:
-		case ASSIGN:
-		case DO:
-		case WHILE:
-		case ASSERT:
-		case IMPLIES:
-			break;
-		case -1: /* list of statements */
-			break;
-		default:
-			return -1;
-		}
 		break;
 	case TYPELIST:          break;
 	case CONSTLIST:         break; /* evaluate expressions */
@@ -914,7 +1082,7 @@ static int code(compile_t *c, ast_t *a, scope_t *s) {
 	case LIST:              break;
 	case CONDITION:         break;
 	case EXPRESSION:        break;
-	case UNARY_EXPRESSION:  break;
+	case UNARY_EXPRESSION:  break; /* TODO: evaluation of constant expressions, and partial evaluation, this should allow some dead code elimination */
 	case TERM:              break;
 	case FACTOR:            break;
 	case IDENTIFIER:        break;
@@ -922,6 +1090,16 @@ static int code(compile_t *c, ast_t *a, scope_t *s) {
 	case STRING:            break;
 	case TYPEDECL:          break;
 	case TYPEUSAGE:         break;
+	case IF_STATEMENT:      break;
+	case WHILE_STATEMENT:   break;
+	case DO_STATEMENT:      break;
+	case ASSERT_STATEMENT:  break;
+	case IMPLIES_STATEMENT: break;
+	case ASSIGN_STATEMENT:  break;
+	case DESIGNATOR:        break;
+	case EXPRLIST:          break;
+	case QUALIDENT:         break;
+	case SELECTOR:          break;
 	default: return -1;
 	}
 
@@ -976,6 +1154,7 @@ int main(int argc, char **argv) {
 	c.err   = stderr;
 	c.start = MEMORY_START;
 	c.here  = MEMORY_START;
+	c.line  = 1;
 	int r = 0;
 	if (argc != 1 && argc != 2 && argc != 3) { /* could generate assembly also */
 		(void)fprintf(stderr, "usage: %s in.pas? out.bin?\n", argv[0]);

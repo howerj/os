@@ -7,6 +7,9 @@
  * - More optional I/O could be added, such as networking, mouse, keyboard
  *   and sound, however it would need to be kept away from this (relatively)
  *   portable C code. Video memory could be added in a portable way.
+ * - Some lessons could be learned from
+ *   <https://en.wikipedia.org/wiki/P-code_machine>, especially if nested
+ *   procedures can refer to enclosing variables.
  * - A proper BIOS should be developed (perhaps as a complete Forth 
  *   interpreter) that can either boot from disk or from serial.
  * - Some of the I/O is more realistic than others, the Virtual Machine is
@@ -30,9 +33,11 @@
 #define IO_END       (MEMORY_START)
 #define NELEMS(X)    (sizeof (X) / sizeof ((X)[0]))
 #define BUILD_BUG_ON(condition)   ((void)sizeof(char[1 - 2*!!(condition)]))
-#define PAGE         (8192ull)
-#define PAGE_MASK    (PAGE - 1ull)
+#define PAGE_SIZE    (8192ull)
+#define PAGE_MASK    (PAGE_SIZE - 1ull)
 #define TLB_ADDR_MASK (0x0000FFFFFFFFFFFFull & ~PAGE_MASK)
+#define TLB_ENTRIES   (64)
+#define TRAPS         (256)
 
 typedef struct {
 	uint64_t m[1024 * 1024];
@@ -40,15 +45,15 @@ typedef struct {
 	
 	uint64_t tick, timer, uart, tron, trap;
 	uint64_t disk[1024 * 1024], dbuf[1024], dstat, dp;
-	uint64_t traps[256];
-	uint64_t tlb_va[64], tlb_pa[64];
+	uint64_t traps[TRAPS];
+	uint64_t tlb_va[TLB_ENTRIES], tlb_pa[TLB_ENTRIES];
 	uint64_t rtc_last_s, rtc_s, rtc_frac_s;
 	FILE *in, *out, *trace;
 	int halt;
 } vm_t;
 
-enum { VIRT, PRIV, INTR,/* <- privileged flags */ N = 16, Z, C, V,  };
-enum { TEMPTY, TIMPL, TDIV0, TINST, TADDR, TALIGN, TPRIV, TPROTECT, TUNMAPPED, TTIMER, TDISK, };
+enum { V = 52, C, Z, N, /* saved flags -> */ SVIRT = 56, SPRIV, SINTR, /* privileged flags -> */INTR = 60, PRIV, VIRT };
+enum { TGENERAL, TASSERT, TIMPL, TDIV0, TINST, TADDR, TALIGN, TPRIV, TPROTECT, TUNMAPPED, TTIMER, TDISK, };
 enum { READ, WRITE, EXECUTE };
 enum { TLB_BIT_IN_USE = 48, TLB_BIT_PRIVILEGED, TLB_BIT_ACCESSED, TLB_BIT_DIRTY, TLB_BIT_READ, TLB_BIT_WRITE, TLB_BIT_EXECUTE, };
 
@@ -133,30 +138,22 @@ static int trap(vm_t *v, uint64_t addr, uint64_t val) {
 	if (trace(v, "+trap,%d,%"PRIx64",%"PRIx64",", v->trap, addr, val) < 0)
 		return -1;
 
-	if (v->trap > 2) {
+	if (v->trap > 2) { /* use spare privileged bit instead and halt if that bit is set and we trap when privileged? */
 		v->halt = -1;
 		return -1;
 	}
+
 	v->trap++;
-	if (addr == TADDR) {
-		v->tos = val;
-	} else { /* TODO: Only save program counter and to it by saving it to a link register */
-		if (push(v, v->flags))
-			return 1;
-		if (push(v, v->pc))
-			return 1;
-		if (push(v, v->tos))
-			return 1;
-		if (push(v, val))
-			return 1;
-	} 
+	/* TODO: Fix this, this isn't going to work, probably need to push it, along with program 
+	 * counter, and flags? They can trap however...a non-trapping push could be made... */
+	v->tos = val; 
+	v->flags &= 0xF0F0ull << 48; /* clear saved program counter and saved flags */
+	v->flags |= v->flags >> 4;   /* save flags */
+	v->flags |= v->pc;           /* save program counter */
+	bit_set(&v->flags, PRIV);    /* escalate privilege level */
 
-	bit_set(&v->flags, PRIV);
-
-	if (addr >= NELEMS(v->traps)) {
-		v->halt = -1;
-		return -1;
-	}
+	if (addr >= NELEMS(v->traps))
+		addr = TADDR;
 	v->pc = v->traps[addr];
 	return 1;
 }
@@ -182,9 +179,10 @@ static int load_phy(vm_t *v, uint64_t addr, uint64_t *val) {
 		case 0: *val = 0x1; return 0; /* version */ 
 		case 1: *val = sizeof (v->m); return 0;
 		case 2: *val = NELEMS(v->tlb_va); return 0;
-		case 3: *val = 0x3; return 0; /* UART + DISK available */ 
+		case 3: *val = PAGE_SIZE; return 0;
+		case 4: *val = TRAPS; return 0;
+		case 5: *val = 0x3; return 0; /* available I/O:  UART + DISK available */ 
 
-		case 16: *val = v->halt; return 0;
 		case 17: *val = v->tick; return 0;
 		case 18: *val = v->timer; return 0;
 		case 19: *val = v->uart; return 0;
@@ -363,7 +361,6 @@ static int store_phy(vm_t *v, uint64_t addr, uint64_t val) {
 			return 0;
 		}
 
-
 		return trap(v, TADDR, addr);
 	}
 	return trap(v, TADDR, addr);
@@ -457,7 +454,7 @@ static int cpu(vm_t *v) {
 	case  7: c = a + b; bit_cnd(&v->flags, C, c < a); bit_cnd(&v->flags, V, ((c ^ a) & (c ^ b)) >> 63); break;
 	case  8: a -= bit_get(v->flags, C); /* fall-through */
 	case  9: c = a - b; bit_cnd(&v->flags, C, c > a); bit_cnd(&v->flags, V, ((c ^ a) & (c ^ b)) >> 63);  break;
-	case 10: c = a << b; break; /* rotate might be useful, same with shift through carry, arithmetic shift, ... */
+	case 10: c = a << b; break; /* rotate? shift through carry? arshift? other bit operations? */
 	case 11: c = a >> b; break;
 	case 12: c = a * b;  break;
 	case 13: if (!b) return trap(v, TDIV0, 0); c = a / b; break;
@@ -467,14 +464,13 @@ static int cpu(vm_t *v) {
 	case 17: v->sp = b; break;
 	case 18: c = v->flags; break;
 	case 19: 
-		 if (bit_get(v->flags, PRIV)) { 
-			 v->flags = b;
-		 } else {
-			if (b & 0xFFFFull)
-				return trap(v, TPRIV, 0);
-			v->flags |= (b & ~0xFFFFull);
-		 }
-		 break;
+		if (bit_get(v->flags, PRIV) == 0) { 
+			v->flags &= 0xFFull << 60;
+			v->flags |= (b & ~(0xFFull << 60));
+			break;
+		}
+		v->flags = b;
+		break;
 	case 20: return trap(v, b, a);
 	case 21: v->trap = b & 0xFF; break;
 	case 22: if (load(v, b, &c, READ)) return 1; break;
@@ -509,7 +505,6 @@ static int cpu(vm_t *v) {
 		bit_set(&v->flags, Z);
 	if ((c & (1ull << 63)))
 		bit_set(&v->flags, N);
-
 next:
 	v->pc = next;
 	return 0;

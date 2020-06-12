@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-std=c99 -Wall -Wextra -pedantic -O2 -g
+CFLAGS=-std=c99 -Wall -Wextra -pedantic -g
 TARGET=vm
 
 .PHONY: all run clean
