@@ -4,7 +4,7 @@ TARGET=vm
 
 .PHONY: all run clean
 
-all: ${TARGET} pas asm hexy
+all: ${TARGET} pas hexy
 
 run: ${TARGET} disk.img
 	./${TARGET} disk.img
@@ -12,15 +12,10 @@ run: ${TARGET} disk.img
 %.img: %.hex hexy
 	./hexy $< $@
 
-%.hex: %.asm asm
-	./asm $< $@
-
 %.hex: %.pas pas
 	./pas $< $@
 
 pas: pas.c
 
-asm: asm.c
-
 clean:
-	rm -fv ${TARGET} asm hexy pas *.o *.a *.exe
+	rm -fv ${TARGET} hexy pas *.o *.a *.exe

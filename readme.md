@@ -16,7 +16,7 @@ make sense**
 
 * [x] Get basic VM working
 * [ ] Revisit VM design after making compiler/kernel
-* [x] Make a assembler for the VM
+* [x] Make a assembler for the VM (now deleted)
 * [ ] Make a pascal compiler for the VM
 * [ ] Make a bootloader
 * [ ] Start work on a Unix kernel for the VM
@@ -45,4 +45,15 @@ Project goals:
 * Port the system to an FPGA
   - My Forth CPU system <https://github.com/howerj/forth-cpu> could be used as
     basis for some of the peripherals
+
+# References
+
+* <https://9p.io/plan9/>
+* <https://en.wikipedia.org/wiki/Plan_9_from_Bell_Labs>
+* <http://www.projectoberon.com/>
+* <https://en.wikipedia.org/wiki/Oberon_%28operating_system%29>
+* <https://people.inf.ethz.ch/wirth/ProjectOberon/index.html>
+* <https://github.com/rswier/swieros>
+* <https://github.com/howerj/forth-cpu>
+* <http://oberon07.com/EBNF.txt>
 

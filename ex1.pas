@@ -1,9 +1,9 @@
 (* Test program *)
 (*
 TODO
+	- Add shebang syntax so these programs can be ran as scripts
 	- syntax for module declaration and import
 	- add syntax for type declaration, arrays, pointers, records
-	- add syntax for multiple return arguments?
 	- basic code generation
 	- make a useful test program
 	- make a vim syntax file for this
@@ -12,7 +12,7 @@ TODO
 module test;
 import system;
 
-type time:uint, seconds:b;
+type time = uint, seconds = b, rec = record { a: uint }, pnt = pointer to uint, ar = array 4 of uint;
 const a:c = 3, c:string = "hello";
 var z:uint, y:uint;
 
@@ -21,7 +21,7 @@ procedure square (a, b) {
 	r := a * b;
 }
 
-procedure fn2:uint (b:uint, c:uint) {
+procedure fn2 (b:uint, c:uint) : uint {
 }
 
 a := 4 / 3 + 9;

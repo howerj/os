@@ -473,6 +473,7 @@ static int cpu(vm_t *v) {
 		break;
 	case 20: return trap(v, b, a);
 	case 21: v->trap = b & 0xFF; break;
+	/* TODO: Load relative to stack pointer? */
 	case 22: if (load(v, b, &c, READ)) return 1; break;
 	case 23: if (store(v, b, a)) return 1; break;
 	case 24: { uint8_t cb = 0; if (loadb(v, b, &cb)) return 1; c = cb; } break;

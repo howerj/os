@@ -9,8 +9,14 @@
  * TODO: Start by modifying a PL/0 or Oberon grammar, add multiple returns,
  * some compile intrinsics, modules, function arguments, nested procedures,
  * records, arrays and strings. Some basic optimizations should probably done
- * one the code, see <https://en.wikipedia.org/wiki/Static_single_assignment_form>.
- * TODO: Come up with a better name? Uberon? */
+ * one the code, see <https://en.wikipedia.org/wiki/Static_single_assignment_form>. 
+ * The object system could be added in after?
+ * TODO: Improve compiler error reporting.
+ * TODO: Figure out the best way to define the intrinsic functions for; ADR,
+ * BIT, LSH, ROT, VAL, GET, PUT, and NEW. Also add intrinsic functions for
+ * 'assert', 'implies' and other things. Assembly directives may also need to
+ * be added, and something for 'trap' as well. If the pseudo module SYSTEM is
+ * detected, the unsafe operations should be added to the scope. */
 
 #include <assert.h>
 #include <ctype.h>
@@ -38,8 +44,8 @@ struct ast {
 	size_t children;
 	ast_t **as;
 	/* compiler data */
-	uint64_t location;
-	int used, resolved;
+	uint64_t location, size;
+	unsigned used, resolved, arith_type;
 	/* token data */
 	uint64_t d;
 	char *s;
@@ -332,12 +338,13 @@ static int any(compile_t *c, ...) {
 	return r;
 }
 
-enum { /* TODO: Merge with token enumerations */
+enum {
 	PROGRAM, BLOCK, STATEMENT, TYPELIST, CONSTLIST, VARLIST, PROCLIST, CONSTANT, VARIABLE, FUNCTION, 
 	CONDITIONAL, LIST, CONDITION, EXPRESSION,
 	UNARY_EXPRESSION, TERM, FACTOR, IDENTIFIER, NUMBER, STRING, TYPEDECL, TYPEUSAGE, IMPORTLIST,
 	IF_STATEMENT, WHILE_STATEMENT, DO_STATEMENT, FOR_STATEMENT, ASSERT_STATEMENT, IMPLIES_STATEMENT, ASSIGN_STATEMENT, CALL_STATEMENT,
-	DESIGNATOR, EXPRLIST, QUALIDENT, SELECTOR, ARRAY_TYPE, RECORD_TYPE, POINTER_TYPE, PROCEDURE_TYPE,
+	DESIGNATOR, EXPRLIST, QUALIDENT, SELECTOR, ARRAY_TYPE, RECORD_TYPE, POINTER_TYPE, PROCEDURE_TYPE, FIELD,
+	CONSTEXPR,
 };
 
 static char *rules[] = {
@@ -345,7 +352,8 @@ static char *rules[] = {
 	"condition", "list", "condition", "expression", "unary", "term", "factor",
 	"identifier", "number", "string", "typedecl", "typeusage", "importlist",
 	"if-statement", "while-statement", "do-statement", "for-statement", "assert-statement", "implies-statement", "assign-statement", "call-statement",
-	"designator", "exprlist", "qualident", "selector", "array-type", "record-type", "pointer-type", "procedure-type",
+	"designator", "exprlist", "qualident", "selector", "array-type", "record-type", "pointer-type", "procedure-type", "field",
+	"const-expression",
 };
 
 static int expect(compile_t *c, int sym) {
@@ -438,6 +446,13 @@ static int unary_expression(compile_t *c, ast_t **r) { /* ["+"|"-"] term express
 	if (term(c, &a->as[0]) < 0)
 		return -1;
 	return expression(c, &a->as[1]);
+}
+
+static int constexpr(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, CONSTEXPR, 1);
+	return unary_expression(c, &a->as[0]);
 }
 
 static int identifier(compile_t *c, ast_t **r) {
@@ -601,55 +616,87 @@ static int list(compile_t *c, ast_t **r) {
 	return 0;
 }
 
-static int array_type(compile_t *c, ast_t **r) {
-	assert(c);
-	assert(r);
-	ast_t *a = ast_new(c, r, ARRAY_TYPE, 2);
-	return 0;
-}
+static int typeusage(compile_t *c, ast_t **r);
 
-static int record_type(compile_t *c, ast_t **r) {
+static int field(compile_t *c, ast_t **r) { /* ident ":" type */
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, RECORD_TYPE, 2);
+	if (identifier(c, &a->as[0]) < 0)
+		return -1;
+	if (expect(c, COLON) < 0)
+		return -1;
+	return typeusage(c, &a->as[1]);
+}
+
+static int record_type(compile_t *c, ast_t **r) { /* "RECORD" { fieldlist } */
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, RECORD_TYPE, 1);
+	if (expect(c, LBRC) < 0)
+		return -1;
+	if (field(c, &a->as[0]) < 0)
+		return -1;
+	for (size_t i = 1; accept(c, SEMI); i++) {
+		ast_grow(a);
+		if (field(c, &a->as[i]) < 0)
+			return -1;
+	}
+	if (expect(c, RBRC) < 0)
+		return -1;
 	return 0;
 }
 
-static int pointer_type(compile_t *c, ast_t **r) {
+static int array_type(compile_t *c, ast_t **r) { /* "ARRAY" constexpr { "," constexpr } "OF" "TYPE" */
 	assert(c);
 	assert(r);
-	ast_t *a = ast_new(c, r, POINTER_TYPE, 2);
-	return 0;
+	ast_t *a = ast_new(c, r, ARRAY_TYPE, 2);
+	if (constexpr(c, &a->as[0]) < 0)
+		return -1;
+	size_t i = 1;
+	for (; accept(c, COMMA); i++) {
+		ast_grow(a);
+		if (constexpr(c, &a->as[i]) < 0)
+			return -1;
+	}
+	if (expect(c, OF) < 0)
+		return -1;
+	return typeusage(c, &a->as[i]);
 }
+
+static int pointer_type(compile_t *c, ast_t **r) { /* "POINTER" "TO" type */
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, POINTER_TYPE, 1);
+	if (expect(c, TO) < 0)
+		return -1;
+	return typeusage(c, &a->as[0]);
+}
+
+static int varlist(compile_t *c, ast_t **r);
 
 static int procedure_type(compile_t *c, ast_t **r) {
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, PROCEDURE_TYPE, 2);
+	if (expect(c, LPAR) < 0)
+		return -1;
+	if (peek(c, IDENT)) {
+		if (varlist(c, &a->as[0]) < 0)
+			return -1;
+	}
+	if (expect(c, RPAR) < 0)
+		return -1;
+	if (accept(c, COLON))
+		if (typeusage(c, &a->as[1]) < 0)
+			return -1;
 	return 0;
 }
 
 static int typeusage(compile_t *c, ast_t **r) {
 	assert(c);
 	assert(r);
-	ast_t *a = ast_new(c, r, TYPEUSAGE, 1);
-	if (accept(c, S64))
-		return use(c, a);
-	if (accept(c, U64))
-		return use(c, a);
-	if (accept(c, U8))
-		return use(c, a);
-	return qualident(c, &a->as[0]);
-}
-
-static int typedecl(compile_t *c, ast_t **r) {
-	assert(c);
-	assert(r);
-	ast_t *a = ast_new(c, r, TYPEDECL, 1);
-	if (identifier(c, &a->as[0]) < 0)
-		return -1;
-	if (expect(c, COLON) < 0)
-		return -1;
+	ast_t *a = ast_new(c, r, TYPEUSAGE, 0);
 	if (accept(c, S64))
 		return use(c, a);
 	if (accept(c, U64))
@@ -657,7 +704,26 @@ static int typedecl(compile_t *c, ast_t **r) {
 	if (accept(c, U8))
 		return use(c, a);
 	ast_grow(a);
-	return qualident(c, &a->as[1]);
+	if (accept(c, POINTER))
+		return pointer_type(c, &a->as[0]);
+	if (accept(c, RECORD))
+		return record_type(c, &a->as[0]);
+	if (accept(c, PROCEDURE))
+		return procedure_type(c, &a->as[0]);
+	if (accept(c, ARRAY))
+		return array_type(c, &a->as[0]);
+	return qualident(c, &a->as[0]);
+}
+
+static int typedecl(compile_t *c, ast_t **r) {
+	assert(c);
+	assert(r);
+	ast_t *a = ast_new(c, r, TYPEDECL, 2);
+	if (identifier(c, &a->as[0]) < 0)
+		return -1;
+	if (expect(c, EQ) < 0)
+		return -1;
+	return typeusage(c, &a->as[1]);
 }
 
 static int typelist(compile_t *c, ast_t **r) {
@@ -710,7 +776,7 @@ static int constant(compile_t *c, ast_t **r) {
 			return -1;
 	if (expect(c, EQ) < 0)
 		return -1;
-	return unary_expression(c, &a->as[2]);
+	return constexpr(c, &a->as[2]);
 }
 
 static int constlist(compile_t *c, ast_t **r) {
@@ -732,24 +798,14 @@ static int block(compile_t *c, ast_t **r);
 static int function(compile_t *c, ast_t **r) {
 	assert(c);
 	assert(r);
-	ast_t *a = ast_new(c, r, FUNCTION, 4);
+	ast_t *a = ast_new(c, r, FUNCTION, 3);
 	if (identifier(c, &a->as[0]) < 0)
 		return -1;
-	if (accept(c, COLON)) {
-		if (typeusage(c, &a->as[1]) < 0)
-			return -1;
-	}
-	if (expect(c, LPAR) < 0)
-		return -1;
-	if (peek(c, IDENT)) {
-		if (varlist(c, &a->as[2]) < 0)
-			return -1;
-	}
-	if (expect(c, RPAR) < 0)
+	if (procedure_type(c, &a->as[1]) < 0)
 		return -1;
 	if (expect(c, LBRC) < 0)
 		return -1;
-	if (block(c, &a->as[3]) < 0)
+	if (block(c, &a->as[2]) < 0)
 		return -1;
 	return expect(c, RBRC);
 }
@@ -793,14 +849,14 @@ static int call_statement(compile_t *c, ast_t **r, ast_t *first) {
 	return expect(c, RPAR);
 }
 
-static int assert_statement(compile_t *c, ast_t **r) {
+static int assert_statement(compile_t *c, ast_t **r) { /* TODO: make this an intrinsic, remove from grammar */
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, ASSERT_STATEMENT, 1);
 	return condition(c, &a->as[0]);
 }
 
-static int implies_statement(compile_t *c, ast_t **r) {
+static int implies_statement(compile_t *c, ast_t **r) { /* TODO: make this an intrinsic, remove from grammar */
 	assert(c);
 	assert(r);
 	ast_t *a = ast_new(c, r, IMPLIES_STATEMENT, 2);
@@ -876,7 +932,7 @@ static int for_statement(compile_t *c, ast_t **r) {
 		return -1;
 	if (accept(c, BY)) {
 		ast_grow(a);
-		if (unary_expression(c, &a->as[3]) < 0)
+		if (constexpr(c, &a->as[3]) < 0)
 			return -1;
 	}
 	return 0;
@@ -1067,6 +1123,7 @@ static int code(compile_t *c, ast_t *a, scope_t *s) {
 			fix(c, hole1, c->here - c->start);
 		if (code(c, a->as[4], &ns) < 0) /* statement */
 			return -1;
+		/* TODO: emit return */
 		break;
 	}
 	case STATEMENT:
@@ -1096,10 +1153,17 @@ static int code(compile_t *c, ast_t *a, scope_t *s) {
 	case ASSERT_STATEMENT:  break;
 	case IMPLIES_STATEMENT: break;
 	case ASSIGN_STATEMENT:  break;
+	case CALL_STATEMENT:    break;
 	case DESIGNATOR:        break;
 	case EXPRLIST:          break;
 	case QUALIDENT:         break;
 	case SELECTOR:          break;
+	case ARRAY_TYPE:        break;
+	case RECORD_TYPE:       break;
+	case POINTER_TYPE:      break;
+	case PROCEDURE_TYPE:    break;
+	case FIELD:             break;
+	case CONSTEXPR:         break;
 	default: return -1;
 	}
 
