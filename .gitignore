@@ -1,0 +1,9 @@
+*.a
+*.bin
+*.dll
+*.exe
+*.img
+*.o
+*~
+fat32
+root/
