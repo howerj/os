@@ -33,6 +33,18 @@ host utilities. These utilities would be needed to get data in and out of the
 system, so would be another important step. I plan to make a simple throw away
 file system before moving to something better, perhaps like [littlefs][].
 
+The CPU target (and Standard Library Virtual Machine) could instead be built
+upon a 64-bit RISC-V target, see <http://riscvbook.com/greencard-20181213.pdf>
+and <https://en.wikipedia.org/wiki/RISC-V>, there are a few advantages to doing
+this, such as lots of literature available for it, hardware implementations,
+and more. Also <https://github.com/ultraembedded/riscv> and
+<http://github.com/ultraembedded/biriscv>.
+
+Note that <https://github.com/ultraembedded/riscv> includes a simulator written
+in C++, although it is for a 32-bit RISC target. The RISC-V instruction set 
+also has some nice properties, it has an optional compressed 16-bit instruction
+set, floating point instructions, traps, and more.
+
 ## To Do
 
 * [ ] Add project documentation
