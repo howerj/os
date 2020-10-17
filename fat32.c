@@ -5,6 +5,7 @@ struct fat32_file_t {
 	unsigned long node;
 };
 
+/* Add other parameters; sector size, etcetera? */
 int fat32_format(fat32_t *f, void *path, size_t image_size) {
 	assert(f);
 	assert(path);

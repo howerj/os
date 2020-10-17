@@ -37,20 +37,24 @@ typedef struct {
 	size_t size;
 } fat32_stat_t;
 
-typedef struct {
+struct fat32_t;
+typedef struct fat32_t fat32_t;
+
+struct fat32_t {
 	allocator_fn allocator;
-	int (*open)(void **file, void *path, int ro);
-	int (*close)(void *file);
-	int (*read)(void *file, size_t cnt, uint8_t *bytes);
-	int (*write)(void *file, size_t cnt, const uint8_t *bytes);
-	int (*seek)(void *file, size_t pos);
-	int (*tell)(void *file, size_t *pos);
+	int (*open)(fat32_t *f, void **file, void *path, int new_file);
+	int (*close)(fat32_t *f, void *file);
+	int (*read)(fat32_t *f, void *file, size_t *cnt, uint8_t *bytes);
+	int (*write)(fat32_t *f, void *file, size_t cnt, const uint8_t *bytes);
+	int (*seek)(fat32_t *f, void *file, size_t pos);
+	int (*tell)(fat32_t *f, void *file, size_t *pos);
+	int (*flush)(fat32_t *f, void *file);
 	int (*logger)(void *logfile, const char *fmt, va_list ap);
 	void *arena,    /* passed to 'allocator' */
 	     *logfile,  /* passed to 'logger' */
 	     *file,     /* file handle of image, returned by open callback */
 	     *state;    /* internal usage only; do not bounce */
-} fat32_t;
+};
 
 FAT32_API int fat32_format(fat32_t *f, void *path, size_t image_size);
 FAT32_API int fat32_mount(fat32_t *f, void *path);

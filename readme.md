@@ -1,10 +1,10 @@
-# Portable FAT-32 Library
+# Portable FAT-32 Library And Utilities in C
 
 * Project: FAT-32 library and Utilities in C
-* Author: Richard James Howe
-* Email: howe.r.j.89@gmail.com
+* Author:  Richard James Howe
+* Email:   howe.r.j.89@gmail.com
 * License: The Unlicense
-* Repo: https://github.com/howerj/fat32
+* Repo:    https://github.com/howerj/fat32
 
 **This project is a work in progress and is liable to not work/not do as it
 says, use it at your own risk**.
@@ -17,7 +17,9 @@ says, use it at your own risk**.
 * If possible implement FAT-12 and FAT-16, so long as the task it not too
   onerous.
 * Add unit tests.
-* Add specifications and my own documentation
+* Add specifications and my own documentation, this should be done as a nice
+  markdown file so that other people can use it.
+* Optional support for long file names and other code-pages?
 * Make a utility that allows the creation of FAT32 images given a root
   directory. This will require non-portable code to be added to recursively
   walk a given directory and generate a list of files and directories to
@@ -29,4 +31,10 @@ says, use it at your own risk**.
 * Turn this file into a manual page that describes the project, and the FAT-32
   file system.
 * Make a variant in Rust?
+* Link to other FAT-32 implementations/References:
+  - <http://elm-chan.org/fsw/ff/00index_p.html>, <https://news.ycombinator.com/item?id=24766508>
+  - <https://github.com/search?l=C&q=fat32&type=Repositories>
+  - <https://www.win.tue.nl/~aeb/linux/fs/fat/fat-1.html>
+  - <http://read.pudn.com/downloads77/ebook/294884/FAT32%20Spec%20(SDA%20Contribution).pdf>
+  - <https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system>
 
