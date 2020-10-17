@@ -125,7 +125,20 @@ static int format(fat32_t *f, int argc, char **argv) {
 
 static int help(const char *arg0) {
 	assert(arg0);
-	return 0;
+	const char *h = "\
+Usage:   %s <command> options\n\
+Project: FAT-32 Utility\n\
+Author:  Richard James Howe\n\
+Email:   howe.r.j.89@gmail.com\n\
+Repo:    https://github.com/howerj/fat32\n\
+License: The Unlicense, Public Domain\n\n\
+Commands:\n\n\
+\tformat <image.bin> - format a disk image\n\
+\ttest   <image.bin> - perform built in self tests using <image.bin>\n\
+\n\
+Returns zero on success, non-zero on failure.\n\n\
+";
+	return fprintf(stderr, h, arg0);
 }
 
 int main(int argc, char **argv) {
@@ -170,7 +183,8 @@ int main(int argc, char **argv) {
 
 	if (!strcmp(argv[1], "format")) {
 		return format(&f, argc - 1, argv + 1);
-	} else if (!strcmp(argv[1], "test")) {
+	} else if (!strcmp(argv[1], "test") && argc == 3) {
+		return fat32_tests(&f, argv[2]);
 	} else if (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")) {
 		if (help(argv[0]) < 0)
 			return 1;

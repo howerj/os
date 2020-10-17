@@ -2,6 +2,7 @@
 *.bin
 *.dll
 *.exe
+*.hex
 *.img
 *.o
 *~

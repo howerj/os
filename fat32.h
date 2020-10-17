@@ -68,7 +68,7 @@ FAT32_API int fat32_ftell(fat32_t *f, fat32_file_t *file, size_t *pos);
 FAT32_API int fat32_fstat(fat32_t *f, const char *path, fat32_stat_t *stat);
 FAT32_API int fat32_unlink(fat32_t *f, const char *path);
 FAT32_API int fat32_mkdir(fat32_t *f, const char *path);
-FAT32_API int fat32_tests(fat32_t *f);
+FAT32_API int fat32_tests(fat32_t *f, void *path);
 
 #ifdef __cplusplus
 }
