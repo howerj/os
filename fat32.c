@@ -2,6 +2,11 @@
 #include <assert.h>
 #include <string.h>
 
+
+#ifndef FAT32_LOGGING
+#define FAT32_LOGGING (0u)
+#endif
+
 /* TODO: Implement FAT-12, FAT-16, and FAT-32 code */
 /* TODO: Rename 'FAT32' -> 'FAT' */
 enum {
@@ -84,6 +89,57 @@ enum {
 	FAT32_DIR_FLG_RESERVED0 = 1u << 6, /* reserved bit */
 	FAT32_DIR_FLG_RESERVED1 = 1u << 7, /* reserved bit */
 }; /* flag field in 'fat32_directory_entry_t' */
+
+#if 0
+#ifdef __GNUC__
+static int fat32_log_fmt(fat32_t *h, const char *fmt, ...) __attribute__ ((format (printf, 2, 3)));
+static int fat32_log_line(fat32_t *h, const char *type, int die, int ret, const unsigned line, const char *fmt, ...) __attribute__ ((format (printf, 6, 7)));
+#endif
+
+static int fat32_log_fmt(fat32_t *h, const char *fmt, ...) {
+	assert(fmt);
+	va_list ap;
+	va_start(ap, fmt);
+	const int r = h->os.logger(h->os.logfile, fmt, ap);
+	va_end(ap);
+	if (r < 0)
+		(void)fat32_kill(h);
+	return r;
+}
+
+static int fat32_log_line(fat32_t *h, const char *type, int die, int ret, const unsigned line, const char *fmt, ...) {
+	assert(h);
+	assert(fmt);
+	if (h->os.flags & fat32_OPT_LOGGING_ON) {
+		if (fat32_log_fmt(h, "%s:%u ", type, line) < 0)
+			return fat32_ERROR;
+		va_list ap;
+		va_start(ap, fmt);
+		if (h->os.logger(h->os.logfile, fmt, ap) < 0)
+			(void)fat32_kill(h);
+		va_end(ap);
+		if (fat32_log_fmt(h, "\n") < 0)
+			return fat32_ERROR;
+	}
+	if (die)
+		return fat32_kill(h);
+	return fat32_is_dead(h) ? fat32_ERROR : ret;
+}
+
+#if FAT32_LOGGING == 0
+static inline int rcode(const int c) { return c; } /* suppresses warnings */
+#define debug(H, ...) rcode(FAT32_OK)
+#define info(H, ...)  rcode(FAT32_OK)
+#define error(H, ...) rcode(FAT32_ERROR)
+#define fatal(H, ...) httpc_kill((H))
+#else
+#define debug(H, ...) httpc_log_line((H), "debug", 0, FAT32_OK,    __LINE__, __VA_ARGS__)
+#define info(H, ...)  httpc_log_line((H), "info",  0, FAT32_OK,    __LINE__, __VA_ARGS__)
+#define error(H, ...) httpc_log_line((H), "error", 0, FAT32_ERROR, __LINE__, __VA_ARGS__)
+#define fatal(H, ...) httpc_log_line((H), "fatal", 1, FAT32_ERROR, __LINE__, __VA_ARGS__)
+#endif
+#endif
+
 
 static int sk(fat32_t *f, void *file, uint32_t loc) {
 	assert(f);
