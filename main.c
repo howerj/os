@@ -120,7 +120,11 @@ static int format(fat32_t *f, int argc, char **argv) {
 	assert(f);
 	assert(argv);
 	assert(argc > 0);
-	return 0;
+	if (argc != 4) {
+		(void)fprintf(stderr, "incorrect command format -- <image.bin> <type:12/16/32> <size:kiB>\n");
+		return -1;
+	}
+	return fat32_format(f, argv[1], atoi(argv[2]), atol(argv[3]));
 }
 
 static int help(const char *arg0) {
@@ -183,7 +187,7 @@ int main(int argc, char **argv) {
 
 	if (!strcmp(argv[1], "format")) {
 		return format(&f, argc - 1, argv + 1);
-	} else if (!strcmp(argv[1], "test") && argc == 3) {
+	} else if ((!strcmp(argv[1], "test") || !strcmp(argv[1], "-t")) && argc == 3) {
 		return fat32_tests(&f, argv[2]);
 	} else if (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")) {
 		if (help(argv[0]) < 0)
