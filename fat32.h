@@ -56,7 +56,7 @@ struct fat32_t {
 	     *state;    /* internal usage only; do not bounce */
 };
 
-FAT32_API int fat32_format(fat32_t *f, void *path, size_t image_size);
+FAT32_API int fat32_format(fat32_t *f, void *path, int type, size_t image_size);
 FAT32_API int fat32_mount(fat32_t *f, void *path);
 FAT32_API int fat32_unmount(fat32_t *f, void *path);
 FAT32_API int fat32_fopen(fat32_t *f, const char *path, fat32_file_t **file);

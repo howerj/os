@@ -1,11 +1,14 @@
 #!/bin/bash
 
 # TODO: Generate FAT-{12,16,32}
+# TODO: Populate generated image with randomly generated text files and directories.
 
 set -eux 
-SIZE=${1:-1}
+SIZE=${1:-33}
 BASE="${SIZE}mb"
 IMAGE="${BASE}.img"
+# TODO: Change based on image size, and FAT type
+SECTOR=2048
 rm -fv "${BASE}.img"
 rm -fv "${BASE}.hex"
 fallocate -l ${SIZE}M "${IMAGE}"
@@ -13,7 +16,7 @@ fdisk "${IMAGE}" << EOF
 n
 p
 1
-1
+${SECTOR}
 
 t
 c
