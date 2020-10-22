@@ -168,6 +168,7 @@ int main(int argc, char **argv) {
 		.logger    = fat32_logger,
 		.logfile   = stderr,
 		.arena     = NULL,
+		.flags     = FAT32_OPT_LOGGING_ON,
 	};
 
 	/* TODO:

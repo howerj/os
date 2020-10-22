@@ -32,6 +32,10 @@ enum {
 	FAT32_OK    =  0,
 };
 
+enum {
+	FAT32_OPT_LOGGING_ON = 1u << 0,
+};
+
 typedef struct {
 	int type;
 	size_t size;
@@ -54,11 +58,13 @@ struct fat32_t {
 	     *logfile,  /* passed to 'logger' */
 	     *file,     /* file handle of image, returned by open callback */
 	     *state;    /* internal usage only; do not bounce */
+	int error;      /* set on error */
+	unsigned flags; /* options bits */
 };
 
 FAT32_API int fat32_format(fat32_t *f, void *path, int type, size_t image_size);
 FAT32_API int fat32_mount(fat32_t *f, void *path);
-FAT32_API int fat32_unmount(fat32_t *f, void *path);
+FAT32_API int fat32_unmount(fat32_t *f);
 FAT32_API int fat32_fopen(fat32_t *f, const char *path, fat32_file_t **file);
 FAT32_API int fat32_fclose(fat32_t *f, fat32_file_t *file);
 FAT32_API int fat32_fread(fat32_t *f, fat32_file_t *file, size_t *cnt, uint8_t *bytes);

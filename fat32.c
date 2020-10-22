@@ -1,13 +1,26 @@
+#define PROGRAM "FAT32 file system library"
+#define LICENSE "The Unlicense (public domain)"
+#define AUTHOR  "Richard James Howe"
+#define EMAIL   "howe.r.j.89@gmail.com"
+#define REPO    "https://github.com/howerj/fat32"
+#ifndef FAT32_VERSION
+#define FAT32_VERSION "0.0.0" /* defined by build system */
+#endif
+
 #include "fat32.h"
 #include <assert.h>
 #include <string.h>
 
-/* TODO: Allow an offset */
-/* TODO: Sanity checks on information read back
+/* TODO: Allow an offset
+ * TODO: Sanity checks on information read back
  * TODO: 64-bit value for location, FAT32 supports file systems larger than 4GiB */
 
+#ifndef FAT32_TESTS_ON /* Build in tests to the program */
+#define FAT32_TESTS_ON (1u)
+#endif
+
 #ifndef FAT32_LOGGING
-#define FAT32_LOGGING (0u)
+#define FAT32_LOGGING (1u)
 #endif
 
 enum {
@@ -22,7 +35,7 @@ struct fat32_file_t {
 
 typedef struct {
 	int type;
-	fat32_t os;
+	uint64_t file_pos;
 } fat32_state_t;
 
 typedef struct {
@@ -101,7 +114,17 @@ enum {
 	FAT32_DIR_FLG_RESERVED1 = 1u << 7, /* reserved bit */
 }; /* flag field in 'fat32_directory_entry_t' */
 
-#if 0
+static int fat32_kill(fat32_t *f) {
+	assert(f);
+	f->error = -1;
+	return FAT32_ERROR;
+}
+
+static int fat32_is_dead(fat32_t *f) {
+	assert(f);
+	return !!(f->error);
+}
+
 #ifdef __GNUC__
 static int fat32_log_fmt(fat32_t *f, const char *fmt, ...) __attribute__ ((format (printf, 2, 3)));
 static int fat32_log_line(fat32_t *f, const char *type, int die, int ret, const unsigned line, const char *fmt, ...) __attribute__ ((format (printf, 6, 7)));
@@ -111,7 +134,7 @@ static int fat32_log_fmt(fat32_t *f, const char *fmt, ...) {
 	assert(fmt);
 	va_list ap;
 	va_start(ap, fmt);
-	const int r = f->os.logger(f->os.logfile, fmt, ap);
+	const int r = f->logger(f->logfile, fmt, ap);
 	va_end(ap);
 	if (r < 0)
 		(void)fat32_kill(f);
@@ -121,20 +144,20 @@ static int fat32_log_fmt(fat32_t *f, const char *fmt, ...) {
 static int fat32_log_line(fat32_t *f, const char *type, int die, int ret, const unsigned line, const char *fmt, ...) {
 	assert(f);
 	assert(fmt);
-	if (f->os.flags & fat32_OPT_LOGGING_ON) {
+	if (f->flags & FAT32_OPT_LOGGING_ON) {
 		if (fat32_log_fmt(f, "%s:%u ", type, line) < 0)
-			return fat32_ERROR;
+			return FAT32_ERROR;
 		va_list ap;
 		va_start(ap, fmt);
-		if (f->os.logger(f->os.logfile, fmt, ap) < 0)
+		if (f->logger(f->logfile, fmt, ap) < 0)
 			(void)fat32_kill(f);
 		va_end(ap);
 		if (fat32_log_fmt(f, "\n") < 0)
-			return fat32_ERROR;
+			return FAT32_ERROR;
 	}
 	if (die)
 		return fat32_kill(f);
-	return fat32_is_dead(f) ? fat32_ERROR : ret;
+	return fat32_is_dead(f) ? FAT32_ERROR : ret;
 }
 
 #if FAT32_LOGGING == 0
@@ -149,18 +172,16 @@ static inline int rcode(const int c) { return c; } /* suppresses warnings */
 #define error(F, ...) fat32_log_line((F), "error", 0, FAT32_ERROR, __LINE__, __VA_ARGS__)
 #define fatal(F, ...) fat32_log_line((F), "fatal", 1, FAT32_ERROR, __LINE__, __VA_ARGS__)
 #endif
-#endif
 
 static int sk(fat32_t *f, void *file, uint32_t loc) {
 	assert(f);
 	assert(f->seek);
 	assert(file);
-	/* TODO: if error set error flag */
 	size_t pos = 0;
 	if (f->tell(f, file, &pos) < 0)
-		return FAT32_ERROR;
+		return fat32_kill(f);
 	if (loc == pos)
-		return FAT32_OK;
+		return fat32_is_dead(f);
 	return f->seek(f, file, loc);
 }
 
@@ -180,9 +201,44 @@ static int rd(fat32_t *f, void *file, size_t cnt, uint8_t *bytes) {
 	assert(bytes);
 	size_t c = cnt;
 	const int r = f->read(f, file, &c, bytes);
-	/* TODO: Set error flag, increment pos  */
 	if (r < 0 || c != cnt)
+		return fatal(f, "read failed");
+	return fat32_is_dead(f);
+}
+
+static void *fat32_allocate(fat32_t *f, size_t sz) {
+	assert(f);
+	assert(f->allocator);
+	if (fat32_is_dead(f))
+		return NULL;
+	void *r = f->allocator(f->arena, NULL, 0, sz);
+	if (!r)
+		(void)fat32_kill(f);
+	return r;
+}
+
+static int fat32_free(fat32_t *f, void *ptr) {
+	assert(f);
+	if (!ptr)
+		return fat32_is_dead(f);
+	(void)f->allocator(f->arena, ptr, 0, 0);
+	return fat32_is_dead(f);
+}
+
+static int fat32_state_init(fat32_t *f) {
+	assert(f);
+	fat32_state_t *s = fat32_allocate(f, sizeof *s);
+	if (!s)
 		return FAT32_ERROR;
+	f->state = s;
+	return fat32_is_dead(f);
+}
+
+static int fat32_state_deinit(fat32_t *f) {
+	assert(f);
+	if (fat32_free(f, f->state) < 0)
+		return FAT32_ERROR;
+	f->state = NULL;
 	return FAT32_OK;
 }
 
@@ -265,12 +321,14 @@ static int fat32_directory_entry_serdes(fat32_t *f, uint32_t pos, fat32_director
 	/* TODO: If reading, check values */
 	return FAT32_OK;
 fail:
-	return FAT32_ERROR;
+	return fat32_kill(f);
 }
 
 static int fat32_boot_sector_serdes(fat32_t *f, uint32_t pos, fat32_boot_sector_t *bs, int write) {
 	assert(f);
 	assert(bs);
+	if (info(f, "boot sector serdes: %d", write) < 0) goto fail;
+
 	uint8_t djmp[3] = { 0xeb, 0x3c, 0x90, }, dos[8] = { 'H', 'O', 'W', 'E', 'R', 'J', };
        	uint8_t dvol[11] = { 'B', 'O', 'O', 'T', };
        	uint8_t dsid[8] = { 'F', 'A', 'T', '3', '2', ' ', };
@@ -307,9 +365,9 @@ static int fat32_boot_sector_serdes(fat32_t *f, uint32_t pos, fat32_boot_sector_
 	if (fat32_bytes_serdes(f, pos + 0x05A, NULL,    bs->code,                           420, write) != FAT32_OK) goto fail;
 	if (fat32_u16_serdes  (f, pos + 0x1FE, 0xAA55, &bs->executable_sector_signature,         write) != FAT32_OK) goto fail;
 	/* TODO: If reading, check values */
-	return FAT32_OK;
+	return fat32_is_dead(f);
 fail:
-	return FAT32_ERROR;
+	return fat32_kill(f);
 }
 
 /* FAT32 only, not present in FAT12 and FAT16 */
@@ -326,9 +384,9 @@ static int fat32_info_sector(fat32_t *f, uint32_t pos, fat32_info_sector_t *is, 
 	if (fat32_bytes_serdes(f, pos + 0x1E4, NULL,             is->reserved1,                              12, write) != FAT32_OK) goto fail;
 	if (fat32_bytes_serdes(f, pos + 0x1FC, dsig2,            is->signature2,                              4, write) != FAT32_OK) goto fail;
 	/* TODO: If reading, check values */
-	return FAT32_OK;
+	return fat32_is_dead(f);
 fail:
-	return FAT32_ERROR;
+	return fat32_kill(f);
 }
 
 /* Add other parameters; sector size, etcetera? */
@@ -338,6 +396,9 @@ int fat32_format(fat32_t *f, void *path, int type, size_t image_size) {
 	assert(f->close);
 	assert(f->write);
 	assert(path);
+	info(f, "format %p/%d/%lu", path, type, (unsigned long)image_size);
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
 	int r = FAT32_OK;
 	if (type != FAT32_TYPE_32) /* TODO: Support other FAT types, auto select depending on image size? */
 		return FAT32_ERROR;
@@ -357,19 +418,24 @@ int fat32_format(fat32_t *f, void *path, int type, size_t image_size) {
 	if (f->close(f, f->file) < 0)
 		return FAT32_ERROR;
 	f->file = NULL;
-	return r != FAT32_OK ? FAT32_ERROR : FAT32_OK;
+	return r != FAT32_OK ? fat32_kill(f) : fat32_is_dead(f);
 }
 
 int fat32_mount(fat32_t *f, void *path) {
 	assert(f);
 	assert(path);
-	return FAT32_OK;
+	info(f, "mount %p", path);
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	/* TODO: read in and validate boot sector, check which FAT type it is, ... */
+	return fat32_is_dead(f);
 }
 
-int fat32_unmount(fat32_t *f, void *path) {
+int fat32_unmount(fat32_t *f) {
 	assert(f);
-	assert(path);
-	return 0;
+	info(f, "unmount");
+	/* no fat32_is_dead check to prevent leaks */
+	return fat32_is_dead(f);
 }
 
 /* TODO: Valid name detection on creation of new files */
@@ -378,13 +444,18 @@ int fat32_fopen(fat32_t *f, const char *path, fat32_file_t **file) {
 	assert(path);
 	assert(file);
 	*file = NULL;
-	return 0;
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	info(f, "fopen %s", path);
+	return fat32_is_dead(f);
 }
 
 int fat32_fclose(fat32_t *f, fat32_file_t *file) {
 	assert(f);
 	assert(file);
-	return 0;
+	info(f, "fclose %p", (void*)file);
+	/* no fat32_is_dead check to prevent leaks */
+	return fat32_is_dead(f);
 }
 
 int fat32_fread(fat32_t *f, fat32_file_t *file, size_t *cnt, uint8_t *bytes) {
@@ -392,7 +463,10 @@ int fat32_fread(fat32_t *f, fat32_file_t *file, size_t *cnt, uint8_t *bytes) {
 	assert(file);
 	assert(cnt);
 	assert(bytes);
-	return 0;
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	info(f, "fread %p %lu %p", (void*)file, (unsigned long)*cnt, (void*)bytes);
+	return fat32_is_dead(f);
 }
 
 int fat32_fwrite(fat32_t *f, fat32_file_t *file, size_t *cnt, const uint8_t *bytes) {
@@ -400,45 +474,69 @@ int fat32_fwrite(fat32_t *f, fat32_file_t *file, size_t *cnt, const uint8_t *byt
 	assert(file);
 	assert(cnt);
 	assert(bytes);
-	return 0;
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	info(f, "fwrite %p %lu %p", (void*)file, (unsigned long)*cnt, (void*)bytes);
+	return fat32_is_dead(f);
 }
 
 int fat32_fseek(fat32_t *f, fat32_file_t *file, size_t pos) {
 	assert(f);
 	assert(file);
-	return 0;
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	info(f, "fseek %p %lu", (void*)file, (unsigned long)pos);
+	return fat32_is_dead(f);
 }
 
 int fat32_ftell(fat32_t *f, fat32_file_t *file, size_t *pos) {
 	assert(f);
 	assert(file);
 	assert(pos);
-	return 0;
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	*pos = 0;
+	info(f, "ftell %p", (void*)file);
+	return fat32_is_dead(f);
 }
 
 int fat32_fstat(fat32_t *f, const char *path, fat32_stat_t *stat) {
 	assert(f);
 	assert(path);
 	assert(stat);
-	return 0;
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	info(f, "fstat %s", path);
+	return fat32_is_dead(f);
 }
 
 int fat32_unlink(fat32_t *f, const char *path) {
 	assert(f);
 	assert(path);
-	return 0;
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	info(f, "unlink %s", path);
+
+	return fat32_is_dead(f);
 }
 
 /* TODO: Valid name detection on creation of new directories */
 int fat32_mkdir(fat32_t *f, const char *path) {
 	assert(f);
 	assert(path);
-	return 0;
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	info(f, "mkdir %s", path);
+	return fat32_is_dead(f);
 }
 
 int fat32_tests(fat32_t *f, void *path) {
 	assert(f);
 	assert(path);
-	return 0;
+	if (fat32_is_dead(f))
+		return FAT32_ERROR;
+	if (FAT32_TESTS_ON == 0)
+		return FAT32_OK;
+	return fat32_is_dead(f);
 }
 
