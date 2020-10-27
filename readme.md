@@ -40,5 +40,7 @@ says, use it at your own risk**.
   - <http://read.pudn.com/downloads77/ebook/294884/FAT32%20Spec%20(SDA%20Contribution).pdf>
   - <https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system>
   - <http://www.maverick-os.dk/FileSystemFormats/FAT32_FileSystem.html>
+  - <https://www.pjrc.com/tech/8051/ide/fat32.html>
+  - <http://elm-chan.org/fsw/ff/00index_p.html>
 * Example images <https://www.freedos.org/download/>
 

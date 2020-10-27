@@ -36,8 +36,10 @@ struct fat32_file_t {
 typedef struct {
 	int type;
 	uint64_t file_pos;
+	/* TODO: add sector size, clusters, ... */
 } fat32_state_t;
 
+/* TODO: FAT-12 and FAT-16 equivalents */
 typedef struct {
 	uint8_t  jump[3];                        /* 0000h; JMP 0x80h */
 	uint8_t  os_name[8];                     /* 0003h; OEM ID, name of formatting OS */
@@ -427,7 +429,7 @@ int fat32_mount(fat32_t *f, void *path) {
 	info(f, "mount %p", path);
 	if (fat32_is_dead(f))
 		return FAT32_ERROR;
-	/* TODO: read in and validate boot sector, check which FAT type it is, ... */
+	/* TODO: read in and validate boot sector, check which FAT type it is, set values, ... */
 	return fat32_is_dead(f);
 }
 
