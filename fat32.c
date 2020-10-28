@@ -36,7 +36,13 @@ struct fat32_file_t {
 typedef struct {
 	int type;
 	uint64_t file_pos;
-	/* TODO: add sector size, clusters, ... */
+
+	
+
+	uint32_t fat_begin_lba,
+		 cluster_begin_lba,
+		 sectors_per_cluster,
+		 root_dir_first_cluster;
 } fat32_state_t;
 
 /* TODO: FAT-12 and FAT-16 equivalents */
@@ -184,7 +190,10 @@ static int sk(fat32_t *f, void *file, uint32_t loc) {
 		return fat32_kill(f);
 	if (loc == pos)
 		return fat32_is_dead(f);
-	return f->seek(f, file, loc);
+	const int r = f->seek(f, file, loc);
+	if (r < 0)
+		return fatal(f, "seek failed: %d", r);
+	return r;
 }
 
 static int wr(fat32_t *f, void *file, size_t cnt, const uint8_t *bytes) {
@@ -192,8 +201,11 @@ static int wr(fat32_t *f, void *file, size_t cnt, const uint8_t *bytes) {
 	assert(f->write);
 	assert(file);
 	assert(bytes);
-	/* TODO: Set error flag, increment pos */
-	return f->write(f, file, cnt, bytes);
+	/* TODO: increment pos */
+	const int r = f->write(f, file, cnt, bytes);
+	if (r < 0)
+		return fatal(f, "write failed: %d", r);
+	return r;
 }
 
 static int rd(fat32_t *f, void *file, size_t cnt, uint8_t *bytes) {
@@ -205,6 +217,19 @@ static int rd(fat32_t *f, void *file, size_t cnt, uint8_t *bytes) {
 	const int r = f->read(f, file, &c, bytes);
 	if (r < 0 || c != cnt)
 		return fatal(f, "read failed");
+	return fat32_is_dead(f);
+}
+
+static int fill(fat32_t *f, void *file, size_t loc, size_t bytes) {
+	assert(f);
+	assert(f->write);
+	assert(file);
+	if (sk(f, file, loc) < 0)
+		return FAT32_ERROR;
+	unsigned char buf[512] = { 0, };
+	for (size_t i = 0; i < bytes; i += sizeof (buf))
+		if (wr(f, file, sizeof (buf), buf) < 0)
+			return FAT32_ERROR;
 	return fat32_is_dead(f);
 }
 
@@ -336,13 +361,16 @@ static int fat32_boot_sector_serdes(fat32_t *f, uint32_t pos, fat32_boot_sector_
        	uint8_t dsid[8] = { 'F', 'A', 'T', '3', '2', ' ', };
 	/* TODO: Default values for things, detect type {FAT-{12,16,32}}, handle different types. Only
 	 * handle the mutual subset between different FAT implementations, see
-	 * <https://www.win.tue.nl/~aeb/linux/fs/fat/fat-1.html> */
+	 * <https://www.win.tue.nl/~aeb/linux/fs/fat/fat-1.html> 
+	 *
+	 * FAT-12/16 needs 'RootDirSectors'
+	 */
 	if (fat32_bytes_serdes(f, pos + 0x000, djmp,   bs->jump,                              3, write) != FAT32_OK) goto fail;
-	if (fat32_bytes_serdes(f, pos + 0x003, dos,    bs->os_name,                           8, write) != FAT32_OK) goto fail;
-	if (fat32_u16_serdes  (f, pos + 0x00B, 512,   &bs->bytes_per_sector,                     write) != FAT32_OK) goto fail;
-	if (fat32_u8_serdes   (f, pos + 0x00D, 0,     &bs->sectors_per_cluster,                  write) != FAT32_OK) goto fail;
-	if (fat32_u16_serdes  (f, pos + 0x00E, 0,     &bs->reserved_sectors,                     write) != FAT32_OK) goto fail;
-	if (fat32_u8_serdes   (f, pos + 0x010, 2,     &bs->number_of_fat_copies,                 write) != FAT32_OK) goto fail;
+	if (fat32_bytes_serdes(f, pos + 0x003, dos,    bs->os_name,                           8, write) != FAT32_OK) goto fail; // ??
+	if (fat32_u16_serdes  (f, pos + 0x00B, 512,   &bs->bytes_per_sector,                     write) != FAT32_OK) goto fail; // !!
+	if (fat32_u8_serdes   (f, pos + 0x00D, 0,     &bs->sectors_per_cluster,                  write) != FAT32_OK) goto fail; // !!
+	if (fat32_u16_serdes  (f, pos + 0x00E, 0,     &bs->reserved_sectors,                     write) != FAT32_OK) goto fail; // !!
+	if (fat32_u8_serdes   (f, pos + 0x010, 2,     &bs->number_of_fat_copies,                 write) != FAT32_OK) goto fail; // !!
 	if (fat32_u32_serdes  (f, pos + 0x011, 0,     &bs->unused0,                              write) != FAT32_OK) goto fail;
 	if (fat32_u8_serdes   (f, pos + 0x015, 0xF8,  &bs->media_descriptor,                     write) != FAT32_OK) goto fail;
 	if (fat32_u16_serdes  (f, pos + 0x016, 0,     &bs->unused1,                              write) != FAT32_OK) goto fail;
@@ -350,26 +378,26 @@ static int fat32_boot_sector_serdes(fat32_t *f, uint32_t pos, fat32_boot_sector_
 	if (fat32_u16_serdes  (f, pos + 0x01A, 2,     &bs->heads,                                write) != FAT32_OK) goto fail;
 	if (fat32_u32_serdes  (f, pos + 0x01C, 0,     &bs->start_sectors,                        write) != FAT32_OK) goto fail;
 	if (fat32_u32_serdes  (f, pos + 0x020, 0,     &bs->sectors_in_partition,                 write) != FAT32_OK) goto fail;
-	if (fat32_u32_serdes  (f, pos + 0x024, 0,     &bs->sectors_per_fat,                      write) != FAT32_OK) goto fail;
+	if (fat32_u32_serdes  (f, pos + 0x024, 0,     &bs->sectors_per_fat,                      write) != FAT32_OK) goto fail; // !!
 	if (fat32_u16_serdes  (f, pos + 0x028, 0,     &bs->fat_handling_flags,                   write) != FAT32_OK) goto fail;
 	if (fat32_u16_serdes  (f, pos + 0x02A, 0,     &bs->drive_version,                        write) != FAT32_OK) goto fail;
-	if (fat32_u32_serdes  (f, pos + 0x02C, 0,     &bs->root_directory_cluser_number,         write) != FAT32_OK) goto fail;
+	if (fat32_u32_serdes  (f, pos + 0x02C, 0,     &bs->root_directory_cluser_number,         write) != FAT32_OK) goto fail; // !!
 	if (fat32_u16_serdes  (f, pos + 0x030, 0,     &bs->file_system_information_sector,       write) != FAT32_OK) goto fail;
 	if (fat32_u16_serdes  (f, pos + 0x032, 0,     &bs->backup_boot_sector,                   write) != FAT32_OK) goto fail;
 	if (fat32_bytes_serdes(f, pos + 0x034, NULL,    bs->reserved,                        12, write) != FAT32_OK) goto fail;
 	if (fat32_u8_serdes   (f, pos + 0x040, 0,      &bs->logical_drive_number,                write) != FAT32_OK) goto fail;
 	if (fat32_u8_serdes   (f, pos + 0x041, 0,      &bs->current_head,                        write) != FAT32_OK) goto fail;
-	if (fat32_u8_serdes   (f, pos + 0x042, 0x29,   &bs->signature,                           write) != FAT32_OK) goto fail;
+	if (fat32_u8_serdes   (f, pos + 0x042, 0x29,   &bs->signature,                           write) != FAT32_OK) goto fail; // ??
 	if (fat32_u32_serdes  (f, pos + 0x043, 0,      &bs->id,                                  write) != FAT32_OK) goto fail;
-	if (fat32_bytes_serdes(f, pos + 0x047, dvol,    bs->volume_label,                    11, write) != FAT32_OK) goto fail;
-	if (fat32_bytes_serdes(f, pos + 0x052, dsid,    bs->system_id,                        8, write) != FAT32_OK) goto fail;
+	if (fat32_bytes_serdes(f, pos + 0x047, dvol,    bs->volume_label,                    11, write) != FAT32_OK) goto fail; // ??
+	if (fat32_bytes_serdes(f, pos + 0x052, dsid,    bs->system_id,                        8, write) != FAT32_OK) goto fail; // ??
 	/* TODO: Do not retrieve code? */
 	if (fat32_bytes_serdes(f, pos + 0x05A, NULL,    bs->code,                           420, write) != FAT32_OK) goto fail;
-	if (fat32_u16_serdes  (f, pos + 0x1FE, 0xAA55, &bs->executable_sector_signature,         write) != FAT32_OK) goto fail;
+	if (fat32_u16_serdes  (f, pos + 0x1FE, 0xAA55, &bs->executable_sector_signature,         write) != FAT32_OK) goto fail; // !!
 	/* TODO: If reading, check values */
 	return fat32_is_dead(f);
 fail:
-	return fat32_kill(f);
+	return fatal(f, "boot-sector serdes failed");
 }
 
 /* FAT32 only, not present in FAT12 and FAT16 */
@@ -408,6 +436,11 @@ int fat32_format(fat32_t *f, void *path, int type, size_t image_size) {
 		return FAT32_ERROR;
 	if (f->open(f, &f->file, path, 1) < 0)
 		return FAT32_ERROR;
+	if (fill(f, f->file, 0, image_size) < 0)
+		r = fatal(f, "fill failed");
+	if (sk(f, f->file, 0) < 0)
+		r = FAT32_ERROR;
+
 	fat32_boot_sector_t bs = { .id = 0, };
 	if (fat32_boot_sector_serdes(f, 0, &bs, SERDES_WRITE_DEFAULT) != FAT32_OK)
 		r = FAT32_ERROR;
