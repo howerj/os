@@ -56,4 +56,6 @@ Project goals:
 * <https://github.com/rswier/swieros>
 * <https://github.com/howerj/forth-cpu>
 * <http://oberon07.com/EBNF.txt>
+* <https://6004.mit.edu/web/_static/fall20/resources/sp20/L13.pdf>
+* <https://news.ycombinator.com/item?id=25238126> and <https://6004.mit.edu/web/fall20/resources/sp20>
 
