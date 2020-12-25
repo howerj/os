@@ -1,0 +1,3 @@
+[submodule "xv6"]
+	path = xv6
+	url = https://github.com/howerj/xv6

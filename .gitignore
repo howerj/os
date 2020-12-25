@@ -1,0 +1,8 @@
+*.o
+*.bin
+*.elf
+*.iso
+*.sym
+core
+vgcore*
+floppy.img
