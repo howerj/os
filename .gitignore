@@ -2,8 +2,11 @@
 *.bin
 *.dll
 *.exe
+*.hex
 *.img
 *.log
 *.o
 *.so
 *~
+fat32
+root/
