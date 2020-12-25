@@ -38,3 +38,4 @@ This is a work in progress/collection of documents.
 - Project Oberon <http://www.projectoberon.com/>,
   <https://people.inf.ethz.ch/wirth/ProjectOberon/> 
 - P-Code <https://en.wikipedia.org/wiki/P-code_machine>
+- RISC-V OS in Rust <http://osblog.stephenmarz.com/index.html>
