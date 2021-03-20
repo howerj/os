@@ -431,6 +431,17 @@ consumers of the content would provide a bit of their storage and bandwidth to
 peers when accessing a Uniform Resource Name. This needs to be integrated into
 the browser for it to work. This is certainly not a trivial task!
 
+## Misc Notes
+
+* P-Code machine/RISC-V/MIPS
+* Minix, micro-kernel approach
+* Sandbox System call (could use rfork instead?), Run trusted/untrusted code
+  in a sandbox, VM/Same target
+* LZSS+Image format, Graphics card/memory mapped image format
+* Loading raw binaries vs SQLite like format
+* QNX IPC
+* TCL vs bash
+
 [Oberon]: http://www.projectoberon.com/ 
 [dd]: https://en.wikipedia.org/wiki/Dd_%28Unix%29
 [cut]: https://en.wikipedia.org/wiki/Cut_(Unix)
