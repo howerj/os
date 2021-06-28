@@ -441,6 +441,8 @@ the browser for it to work. This is certainly not a trivial task!
 * Loading raw binaries vs SQLite like format
 * QNX IPC
 * TCL vs bash
+* Example Sleep function, in time module:
+  Sleep(duration: Time, type: SleepType := Any): int;
 
 [Oberon]: http://www.projectoberon.com/ 
 [dd]: https://en.wikipedia.org/wiki/Dd_%28Unix%29
