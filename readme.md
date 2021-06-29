@@ -11,7 +11,7 @@ This is a work in progress/collection of documents.
 
 ## To Do
 
-* [ ] Add resources to a document folder for easy access to all things
+* [x] Add resources to a document folder for easy access to all things
   operating system related, add git repositories if possible, for a
   complete history.
 * [ ] Implement a RISC-V 64 bit core, with an MMU

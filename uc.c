@@ -4,7 +4,7 @@
  * - Grammar (C/Pascal like)
  * - Basic functionality
  * - Modules, Functions, Nested Functions, Multiple return values, Records,
- *   Asserts, Safe/Unsafe, Intrinsics
+ *   Asserts, Safe/Unsafe, Intrinsics, Function pointers, strings, arrays, ...
  * - Code Generation
  * - Optional Garbage Collection and Manual Memory Management
  * - Optimizations?
