@@ -14,6 +14,10 @@
 #include <string.h>
 #include <time.h>
 
+// TODO: Move OS stuff to "os.c" file.
+/*#include <pcap.h>
+#include <SDL.h>*/
+
 #ifdef __unix__
 #include <unistd.h>
 #include <termios.h>
@@ -441,7 +445,7 @@ static int cpu(vm_t *v) {
 
 	const uint16_t op = instr >> (64 - 16);
 	const uint64_t op1 = instr & 0x0000FFFFFFFFFFFFull;
-	uint64_t a = v->tos, b = op1, c = 0;
+	uint64_t a = v->tos, b = op1, c = 0, osp = v->sp;
 
 	if (trace(v, "+pc,%"PRIx64",%"PRIx64",%"PRIx64",", v->pc, instr, v->tos) < 0)
 		return -1;
@@ -467,7 +471,7 @@ static int cpu(vm_t *v) {
 			if (push(v, npc))
 				return 1;
 		v->pc = b;
-		return 0;
+		return 0; /* !! */
 	}
 	switch (op & 127) {
 	/* Arithmetic */
@@ -507,13 +511,13 @@ static int cpu(vm_t *v) {
 		 break;
 	/* Load/Store*/
 	case 48: if (loadw(v, b, &c, READ)) return 1; break;
-	case 49: if (loadw(v, v->sp + b, &c, READ)) return 1; break;
+	case 49: if (loadw(v, osp + b, &c, READ)) return 1; break;
 	case 50: if (storew(v, b, a)) return 1; break;
-	case 51: if (storew(v, v->sp + b, a)) return 1; break;
+	case 51: if (storew(v, osp + b, a)) return 1; break;
 	case 52: { uint8_t cb = 0; if (loadb(v, b, &cb)) return 1; c = cb; } break;
-	case 53: { uint8_t cb = 0; if (loadb(v, v->sp + b, &cb)) return 1; c = cb; } break;
+	case 53: { uint8_t cb = 0; if (loadb(v, osp + b, &cb)) return 1; c = cb; } break;
 	case 54: if (storeb(v, b, a)) return 1; break;
-	case 55: if (storeb(v, v->sp + b, a)) return 1; break;
+	case 55: if (storeb(v, osp + b, a)) return 1; break;
 	/* Misc */
 	case 64: return trap(v, b, a);
 	/* MMU/TLB */
@@ -579,7 +583,7 @@ int main(int argc, char **argv) {
 	v.loaded = fread(v.m, 1, sizeof v.m, fin);
 	if (fclose(fin) < 0)
 		return 3;
-	if (run(&v, 5) < 0)
+	if (run(&v, 0) < 0)
 		return 4;
 	FILE *fout = fopen(argv[2], "wb");
 	if (!fout)

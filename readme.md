@@ -35,6 +35,7 @@ This is a work in progress/collection of documents.
 - TCP/IP code <https://www.saminiir.com/lets-code-tcp-ip-stack-1-ethernet-arp/>
 - Gameboy emulator in 68 lines of code <https://binji.github.io/posts/pokegb/>
   (for the graphics peripheral)
+- Oberon Emulator <https://github.com/pdewacht/oberon-risc-emu>
 - RISC-V 64-bit Emulator in Rust <https://book.rvemu.app/>
 - RISC-V Core list <https://github.com/riscv/riscv-cores-list>
 - xv6 Unix like OS <https://pdos.csail.mit.edu/6.828/2019/xv6.html>
