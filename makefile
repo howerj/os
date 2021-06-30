@@ -6,15 +6,15 @@ all: vm uc as.hex
 run: vm os.img
 	./vm os.img out.img
 
-os.hex: uc os.p
-	./uc os.p
-	touch $@
+#os.hex: uc os.p
+#	./uc os.p
+
+os.hex: as.fth
+	gforth $<
+	cp as.hex $@
 
 os.img: os.hex hx
 	./hx $< $@
-
-as.hex: as.fth
-	gforth as.fth
 
 clean:
 	rm -rf vm uc hx *.hex *.img

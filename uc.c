@@ -8,8 +8,7 @@
  * - Code Generation
  * - Optional Garbage Collection and Manual Memory Management
  * - Optimizations?
- * - Linker
- */
+ * - Linker */
 int main(void) {
 	return 0;
 }

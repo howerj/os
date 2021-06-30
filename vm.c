@@ -120,7 +120,7 @@ static inline int bit_cnd(uint64_t *v, int bit, int set) { assert(v); return (se
 
 typedef struct {
 	uint64_t m[SIZE / sizeof (uint64_t)];
-	uint64_t pc, flags, tos, sp, level, timer, tick, tron;
+	uint64_t pc, flags, tos, sp, level, timer, tick, signal, tron;
 	uint64_t traps[TRAPS];
 	uint64_t tlb_va[TLB_ENTRIES], tlb_pa[TLB_ENTRIES];
 	uint64_t disk[SIZE / sizeof (uint64_t)], dbuf[PAGE_SIZE], dstat, dp;
@@ -165,9 +165,8 @@ static int trap(vm_t *v, uint64_t addr, uint64_t val) {
 		return -1;
 	}
 
-	/* TODO: Needs some work/Need shadow register set */
 	v->level++;
-	v->tos = val; 
+	v->signal = val;
 	v->flags &= 0xF0F0ull << 48; /* clear saved program counter and saved flags */
 	v->flags |= v->flags >> 4;   /* save flags */
 	v->flags |= v->pc;           /* save program counter */
@@ -423,10 +422,11 @@ static int storeb(vm_t *v, uint64_t addr, uint8_t val) {
 
 static int push(vm_t *v, uint64_t val) {
 	assert(v);
+	const uint64_t t = v->tos;
 	v->tos = val;
 	const uint64_t loc = v->sp;
 	v->sp -= sizeof (uint64_t);
-	return storew(v, loc, val);
+	return storew(v, loc, t);
 }
 
 static int pop(vm_t *v, uint64_t *val) {
@@ -434,7 +434,7 @@ static int pop(vm_t *v, uint64_t *val) {
 	assert(val);
 	*val = v->tos;
 	v->sp += sizeof (uint64_t);
-	return loadw(v, v->sp, val, READ);
+	return loadw(v, v->sp, &v->tos, READ);
 }
 
 static int cpu(vm_t *v) {
@@ -445,11 +445,9 @@ static int cpu(vm_t *v) {
 
 	const uint16_t op = instr >> (64 - 16);
 	const uint64_t op1 = instr & 0x0000FFFFFFFFFFFFull;
-	uint64_t a = v->tos, b = op1, c = 0, osp = v->sp;
-
-	if (trace(v, "+pc,%"PRIx64",%"PRIx64",%"PRIx64",", v->pc, instr, v->tos) < 0)
+	uint64_t a = v->tos, b = op1, c = 0;
+	if (trace(v, "+pc,%"PRIx64",%"PRIx64",%"PRIx64",%"PRIx64",", v->pc, instr, v->tos, op1) < 0)
 		return -1;
-
 	if ((op & 0x0800) && !bit_get(v->flags, V))
 		goto next;
 	if ((op & 0x0400) && !bit_get(v->flags, C))
@@ -509,15 +507,13 @@ static int cpu(vm_t *v) {
 			 return trap(v, T_PRIV, v->pc);
 		 v->level = b;
 		 break;
-	/* Load/Store*/
+	case 40: c = v->signal; break;
+	case 41: v->signal = c; break;
+	/* Load/Store */
 	case 48: if (loadw(v, b, &c, READ)) return 1; break;
-	case 49: if (loadw(v, osp + b, &c, READ)) return 1; break;
-	case 50: if (storew(v, b, a)) return 1; break;
-	case 51: if (storew(v, osp + b, a)) return 1; break;
-	case 52: { uint8_t cb = 0; if (loadb(v, b, &cb)) return 1; c = cb; } break;
-	case 53: { uint8_t cb = 0; if (loadb(v, osp + b, &cb)) return 1; c = cb; } break;
-	case 54: if (storeb(v, b, a)) return 1; break;
-	case 55: if (storeb(v, osp + b, a)) return 1; break;
+	case 49: if (storew(v, b, a)) return 1; break;
+	case 50: { uint8_t cb = 0; if (loadb(v, b, &cb)) return 1; c = cb; } break;
+	case 51: if (storeb(v, b, a)) return 1; break;
 	/* Misc */
 	case 64: return trap(v, b, a);
 	/* MMU/TLB */
@@ -537,6 +533,7 @@ static int cpu(vm_t *v) {
 	default: return trap(v, T_INST, v->pc);
 	}
 
+	v->tos = c;
 	if (op & 0x2000)
 		if (push(v, c))
 			return 1;
@@ -563,7 +560,7 @@ static int interrupt(vm_t *v) {
 static int run(vm_t *v, uint64_t step) {
 	assert(v);
 	int forever = step == 0;
-	for (uint64_t i = 0; (i < step) || (forever && !v->halt); i++) {
+	for (uint64_t i = 0; (i < step || forever) && !v->halt; i++) {
 		if (interrupt(v) < 0)
 			return -1;
 		if (cpu(v) < 0)
@@ -573,7 +570,7 @@ static int run(vm_t *v, uint64_t step) {
 }
 
 int main(int argc, char **argv) {
-	static vm_t v = { .pc = MEMORY_START, .tron = 1, };
+	static vm_t v = { .pc = MEMORY_START, .sp = MEMORY_START + PAGE_SIZE, };
 	v.trace = stderr;
 	if (argc != 3)
 		return 1;

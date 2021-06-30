@@ -31,6 +31,7 @@ variable tep size =cell - tep !
 : ;m postpone ; ; immediate
 :m .end only forth definitions decimal ;m
 :m tcell =cell ;m
+:m tcells tcell * ;m
 :m there tdp @ ;m
 :m tc! tflash + c! ;m
 :m tc@ tflash + c@ ;m
@@ -41,61 +42,91 @@ variable tep size =cell - tep !
   parse-word w/o create-file throw
   there 0 ?do i t@  over >r hex# r> write-file throw tcell +loop
    close-file throw ;m
+:m t, there t! =cell tdp +! ;m
 
 \ Instruction flags
-8000 constant fJMP
-4000 constant fREL
-2000 constant fCAL
-2000 constant fPSH \ NB. Reused when fJMP set
-1000 constant fEXT
-0800 constant fFV
-0400 constant fFC
-0200 constant fFZ
-0100 constant fFN
-0080 constant fPOP
-\ ALU: Arithmetic
- 0 constant iA
- 1 constant iB
- 2 constant iInvA
- 3 constant iAnd
- 4 constant iOr
- 5 constant iXor
- 6 constant iLshift
- 7 constant iRshift
- 8 constant iMul
- 9 constant iDiv
- A constant iAdc
- B constant iAdd
- C constant iSbc
- D constant iSub
-\ ALU: Registers
-20 constant iPc
-21 constant iSPc
-22 constant iSp
-23 constant iSSp
-24 constant iFlg
-25 constant iSFlg
-26 constant iLvl
-27 constant iSLvl
-\ ALU: Load/Store
-30 constant iLoadW
-31 constant iLoadRelW
-32 constant iStoreW
-33 constant iStoreRelW
-34 constant iLoadB
-35 constant iLoadRelB
-36 constant iStoreB
-37 constant iStoreRelB
-\ ALU: Miscellaneous
-40 constant iTrap
-\ ALU: MMU/TLB
-50 constant iFlsh1
-51 constant iFlshAll
-52 constant iTlb
+:m fJMP 8000 or ;m
+:m fREL 4000 or ;m
+:m fCAL 2000 or ;m
+:m fPSH 2000 or ;m
+:m fEXT 1000 or ;m
+:m fFV 0800 or ;m
+:m fFC 0400 or ;m
+:m fFZ 0200 or ;m
+:m fFN 0100 or ;m
+:m fPOP 0080 or ;m
+
+:m iA  0 or ;m
+:m iB  1 or ;m
+:m iInvA  2 or ;m
+:m iAnd  3 or ;m
+:m iOr  4 or ;m
+:m iXor  5 or ;m
+:m iLshift  6 or ;m
+:m iRshift  7 or ;m
+:m iMul  8 or ;m
+:m iDiv  9 or ;m
+:m iAdc  A or ;m
+:m iAdd  B or ;m
+:m iSbc  C or ;m
+:m iSub  D or ;m
+
+:m iPc 20 or ;m
+:m iSPc 21 or ;m
+:m iSp 22 or ;m
+:m iSSp 23 or ;m
+:m iFlg 24 or ;m
+:m iSFlg 25 or ;m
+:m iLvl 26 or ;m
+:m iSLvl 27 or ;m
+
+:m iLoadW 30 or ;m
+:m iStoreW 31 or ;m
+:m iLoadB 32 or ;m
+:m iStoreB 33 or ;m
+:m iSignal 34 or ;m
+:m iSSignal 35 or ;m
+
+:m iTrap 40 or ;m
+
+:m iFlsh1 50 or ;m
+:m iFlshAll 51 or ;m
+:m iTlb 52 or ;m
 
 0000080000000000 constant MEMORY_START 
 0000040000000000 constant IO_START     
+2000             constant PAGE_SIZE
 
+:m ins> 0 ;m
+:m >ins 30 lshift swap FFFFFFFFFFFF and or ;m ( op1 op -- instr )
+
+:m j ins> fJMP >ins t, ;m
+:m jr ins> fEXT fJMP fREL >ins t, ;m
+:m j.z ins> fJMP fFZ >ins t, ;m
+:m jr.z ins> fEXT fJMP fREL fFZ >ins t, ;m
+:m sto ins> iStoreW >ins t, ;m
+:m push ins> fPSH iB >ins t, ;m
+:m add ins> iAdd >ins t, ;m
+:m sub ins> iSub >ins t, ;m
+
+:m begin there ;m
+:m again there - jr ;m
+:m until there - jr.z ;m
+:m if there 0 t, ;m
+\ :m then  ;m
+\ :m while if swap ;m
+\ :m repeat ;m
+
+:m halt 1 push IO_START PAGE_SIZE + sto ;m
+:m tron 1 push IO_START PAGE_SIZE + tcell + sto ;m
+
+tron
+10 add
+begin
+  2 sub
+again
+
+halt
 
 save-hex as.hex
 bye
