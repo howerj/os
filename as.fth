@@ -54,7 +54,8 @@ variable tep size =cell - tep !
 :m fFC 0400 or ;m
 :m fFZ 0200 or ;m
 :m fFN 0100 or ;m
-:m fPOP 0080 or ;m
+:m fPOPB 0080 or ;m
+:m fPOPA 0040 or ;m
 
 :m iA  0 or ;m
 :m iB  1 or ;m
@@ -87,11 +88,10 @@ variable tep size =cell - tep !
 :m iSignal 34 or ;m
 :m iSSignal 35 or ;m
 
-:m iTrap 40 or ;m
-
-:m iFlsh1 50 or ;m
-:m iFlshAll 51 or ;m
-:m iTlb 52 or ;m
+:m iTrap 36 or ;m
+:m iFlsh1 37 or ;m
+:m iFlshAll 38 or ;m
+:m iTlb 39 or ;m
 
 0000080000000000 constant MEMORY_START 
 0000040000000000 constant IO_START     
@@ -106,6 +106,7 @@ variable tep size =cell - tep !
 :m jr.z ins> fEXT fJMP fREL fFZ >ins t, ;m
 :m sto ins> iStoreW >ins t, ;m
 :m push ins> fPSH iB >ins t, ;m
+:m -push ins> fPSH fEXT iB >ins t, ;m
 :m add ins> iAdd >ins t, ;m
 :m sub ins> iSub >ins t, ;m
 
@@ -113,19 +114,23 @@ variable tep size =cell - tep !
 :m again there - jr ;m
 :m until there - jr.z ;m
 :m if there 0 t, ;m
-\ :m then  ;m
+:m then there - ins> fEXT fJMP fREL fFZ >ins there swap t! ;m
 \ :m while if swap ;m
 \ :m repeat ;m
 
 :m halt 1 push IO_START PAGE_SIZE + sto ;m
 :m tron 1 push IO_START PAGE_SIZE + tcell + sto ;m
 
+:m #-1 -1 push ;m
+:m #0   0 push ;m
+
+:m 0= tcell jr.z #-1 #0 ;m
+
 tron
 10 add
 begin
-  2 sub
-again
-
+  2 sub 0=
+until
 halt
 
 save-hex as.hex

@@ -446,7 +446,7 @@ static int cpu(vm_t *v) {
 	const uint16_t op = instr >> (64 - 16);
 	const uint64_t op1 = instr & 0x0000FFFFFFFFFFFFull;
 	uint64_t a = v->tos, b = op1, c = 0;
-	if (trace(v, "+pc,%"PRIx64",%"PRIx64",%"PRIx64",%"PRIx64",", v->pc, instr, v->tos, op1) < 0)
+	if (trace(v, "+pc,%"PRIx64",%"PRIx64",%"PRIx64",%"PRIx64",%"PRIx64",", v->pc, instr, v->sp, v->tos, op1) < 0)
 		return -1;
 	if ((op & 0x0800) && !bit_get(v->flags, V))
 		goto next;
@@ -456,6 +456,9 @@ static int cpu(vm_t *v) {
 		goto next;
 	if ((op & 0x0100) && !bit_get(v->flags, N))
 		goto next;
+	if (op & 0x0040)
+		if (pop(v, &a))
+			return 1;
 	if (op & 0x0080) /* pop instead of using operand */
 		if (pop(v, &b))
 			return 1;
@@ -471,7 +474,7 @@ static int cpu(vm_t *v) {
 		v->pc = b;
 		return 0; /* !! */
 	}
-	switch (op & 127) {
+	switch (op & 63) {
 	/* Arithmetic */
 	case  0: c = a; break;
 	case  1: c = b; break;
@@ -515,11 +518,10 @@ static int cpu(vm_t *v) {
 	case 50: { uint8_t cb = 0; if (loadb(v, b, &cb)) return 1; c = cb; } break;
 	case 51: if (storeb(v, b, a)) return 1; break;
 	/* Misc */
-	case 64: return trap(v, b, a);
-	/* MMU/TLB */
-	case 80: if (tlb_flush_single(v, b, &c)) return 1; break;
-	case 81: if (tlb_flush_all(v)) return 1; break;
-	case 82: {
+	case 52: return trap(v, b, a);
+	case 53: if (tlb_flush_single(v, b, &c)) return 1; break;
+	case 54: if (tlb_flush_all(v)) return 1; break;
+	case 55: {
 		if (bit_get(v->flags, PRIV) == 0) 
 			return trap(v, T_PRIV, v->pc);
 		const int va = bit_get(a, 15);
