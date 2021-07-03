@@ -1,6 +1,5 @@
 /* Richard James Howe, howe.r.j.89@gmail.com, Virtual Machine, Public Domain */
-/* TODO: CPU/MMU/Trap/Interrupts/Timer/RTC/Hard-drive
- * TODO: UART/Networking
+/* TODO: Networking
  * TODO: Screen/Keyboard/Mouse/Sound
  * TODO: Build options for Pure C only version
  * TODO: Floating point */
@@ -14,9 +13,19 @@
 #include <string.h>
 #include <time.h>
 
-// TODO: Move OS stuff to "os.c" file.
-/*#include <pcap.h>
-#include <SDL.h>*/
+#ifdef USE_NETWORKING
+#include <pcap.h>
+#define NETWORKING (1ull)
+#else
+#define NETWORKING (0ull)
+#endif
+
+#ifdef USE_GUI
+#include <SDL.h>
+#define GUI (1ull)
+#else
+#define GUI (0ull)
+#endif
 
 #ifdef __unix__
 #include <unistd.h>
@@ -69,17 +78,9 @@ static void sleep_ms(unsigned ms) {
 	usleep((unsigned long)ms * 1000);
 }
 #else
-static int getch(void) {
-	return getchar();
-}
-
-static int putch(const int c) {
-	return putchar(c);
-}
-
-static void sleep_ms(unsigned ms) {
-	(void)ms;
-}
+static int getch(void) { return getchar(); }
+static int putch(const int c) { return putchar(c); }
+static void sleep_ms(unsigned ms) { (void)ms; }
 #endif
 #endif /** __unix__ **/
 
@@ -96,6 +97,8 @@ static int wrap_getch(void) {
 static int wrap_putch(const int ch) {
 	return putch(ch);
 }
+
+/* End of Peripherals - start of VM */
 
 static inline int within(uint64_t addr, uint64_t lo, uint64_t hi) { return addr >= lo && addr < hi; }
 
@@ -490,6 +493,8 @@ static int cpu(vm_t *v) {
 	case 11: c = a + b; bit_cnd(&v->flags, C, c < a); bit_cnd(&v->flags, V, ((c ^ a) & (c ^ b)) >> 63); break;
 	case 12: a -= bit_get(v->flags, C); /* fall-through */
 	case 13: c = a - b; bit_cnd(&v->flags, C, c > a); bit_cnd(&v->flags, V, ((c ^ a) & (c ^ b)) >> 63); break;
+	/* NB. Could add floating point operations here, only really need addition, multiplication, 
+	 * subtraction and division so long as they set the right flags. */
 	/* Registers */
 	case 32: c = v->pc; break;
 	case 33: npc = b; break;
@@ -531,7 +536,6 @@ static int cpu(vm_t *v) {
 		if (va) v->tlb_va[a] = b; else v->tlb_pa[a] = b;
 		}
 		break;
-	/* NB. Could add floating point operations here */
 	default: return trap(v, T_INST, v->pc);
 	}
 

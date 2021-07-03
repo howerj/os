@@ -6,12 +6,11 @@ all: vm uc as.hex
 run: vm os.img
 	./vm os.img out.img
 
-#os.hex: uc os.p
-#	./uc os.p
+os.hex: uc os.p
+	./uc os.p os.hex
 
-os.hex: as.fth
+as.hex: as.fth
 	gforth $<
-	cp as.hex $@
 
 os.img: os.hex hx
 	./hx $< $@
