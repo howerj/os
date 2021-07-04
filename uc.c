@@ -24,9 +24,9 @@
 #define MEMORY_SIZE   (1024ul * 1024ul * 1ul)
 #define NELEMS(X)     (sizeof(X) / sizeof(X[0]))
 #define implies(P, Q) (assert(!(P) || (Q)))
+#define LEXER_DEBUG   (1)
 
 struct ast;
-
 typedef struct ast {
 	int type, token, line;
 	size_t children;
@@ -169,7 +169,7 @@ again:
 	case '~': c->type = INVERT; break;
 	case '=': c->type = EQ;     break;
 	case '#': c->type = NEQ;    break;
-	case '-': c->type = MINUS;  break;
+	case '-': c->type = MINUS;  break; /* TODO: Should peek ahead and change number */
 	case '+': c->type = PLUS;   break;
 	case '*': c->type = MUL;    break;
 	case '/': c->type = DIV;    break;
@@ -450,15 +450,35 @@ static int code(compile_t *c, ast_t *a, scope_t *s) {
 	return -1;
 }
 
+static int lexer_debug(compile_t *c) {
+	assert(c);
+	for (;c->type != EOI;) {
+		if (lexer(c) < 0)
+			goto fail;
+		if (fprintf(stdout, "type=%d str=%s n=%ld\n", c->type, c->str ? c->str : "(nil)", (long)c->d) < 0)
+			goto fail;
+	}
+	free(c->str);
+	c->str = NULL;
+	return 0;
+fail:
+	free(c->str);
+	c->str = NULL;
+	return -1;
+}
+
 static int compile(compile_t *c) {
 	assert(c);
 	assert(c->in);
 	assert(c->out);
+	if (LEXER_DEBUG)
+		return lexer_debug(c);
 	if (lexer(c) < 0)
 		return -1;
 	if (!(c->as = parse(c)))
 		return -1;
-	ast_print(c, c->as, 0);
+	if (ast_print(c, c->as, 0) < 0)
+		return -1;
 	scope_t s = { .parent = NULL };
 	const int r = code(c, c->as, &s);
 	ast_free(c->as);
@@ -478,6 +498,7 @@ static FILE *fopen_or_die(const char *name, const char *mode) {
 	return r;
 }
 
+/* TODO: Command line arguments, processing location list for linker */
 int main(int argc, char **argv) {
 	int r = 0;
 	compile_t c = { .in = NULL, };

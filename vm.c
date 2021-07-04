@@ -1,7 +1,6 @@
 /* Richard James Howe, howe.r.j.89@gmail.com, Virtual Machine, Public Domain */
-/* TODO: Networking
+/* TODO: Networking (debug)
  * TODO: Screen/Keyboard/Mouse/Sound
- * TODO: Build options for Pure C only version
  * TODO: Floating point */
 #include <assert.h>
 #include <limits.h>
@@ -13,11 +12,64 @@
 #include <string.h>
 #include <time.h>
 
+typedef struct {
+	uint8_t buf[8192];
+	size_t len;
+	void *handle;
+	int error;
+} network_t;
+
 #ifdef USE_NETWORKING
 #include <pcap.h>
 #define NETWORKING (1ull)
+static int eth_init(network_t *n) {
+	char errbuf[PCAP_ERRBUF_SIZE] = { 0, };
+	pcap_if_t *devices;
+	if (pcap_findalldevs(&devices, errbuf) == -1) {
+		(void)fprintf(stderr, "Error eth_init: %s\n", errbuf);
+		goto fail;
+	}
+	pcap_if_t *device;
+	for (device = devices; device; device = device->next) {
+		if (device->description) {
+			printf(" (%s)\n", device->description);
+		} else {
+			(void)fprintf(stderr, "No device\n");
+			//goto fail;
+		}
+	}
+	device = devices->next->next;
+	if (NULL == (n->handle = pcap_open_live(device->name , 65536, 1, 10, errbuf))) {
+		fprintf(stderr, "Unable to open the adapter\n");
+		pcap_freealldevs(devices);
+		goto fail;
+	}
+	pcap_freealldevs(devices);
+	return 0;
+fail:
+	n->error = -1;
+	return -1;
+}
+
+static int eth_poll(network_t *n) {
+	assert(n);
+	const u_char *packet = NULL;
+	struct pcap_pkthdr *header = NULL;
+	for(int res = 0; res == 0;)
+		res = pcap_next_ex(n->handle, &header, &packet);
+	n->len = header->len;
+	memcpy(n->buf, packet, n->len);
+	return n->len;
+}
+
+static int eth_transmit(network_t *n) {
+	return pcap_sendpacket(n->handle, (u_char *)(n->buf), n->len);
+}
 #else
 #define NETWORKING (0ull)
+static int eth_init(network_t *n) { assert(n); n->error = -1; return -1; }
+static int eth_poll(network_t *n) { assert(n); return -1; }
+static int eth_transmit(network_t *n) { assert(n); return -1; }
 #endif
 
 #ifdef USE_GUI
@@ -130,6 +182,7 @@ typedef struct {
 	uint64_t uart_control, uart_rx, uart_tx;
 	uint64_t rtc_control, rtc_s, rtc_frac_s;
 	uint64_t loaded;
+	network_t network;
 	int halt;
 	FILE *trace;
 } vm_t;
