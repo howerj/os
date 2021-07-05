@@ -493,6 +493,8 @@ static int pop(vm_t *v, uint64_t *val) {
 	return loadw(v, v->sp, &v->tos, READ);
 }
 
+/* TODO: This VM needs a lot of working doing to it in order to make it viable,
+ * perhaps something more like a P-Code machine might be better. */
 static int cpu(vm_t *v) {
 	assert(v);
 	uint64_t instr = 0, npc = v->pc + sizeof(uint64_t);

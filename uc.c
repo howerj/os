@@ -1035,6 +1035,12 @@ static ast_t *parse(compile_t *c) {
 	return r;
 }
 
+enum { 
+	I_FLG_JMP   = 0x8000ull, I_FLG_REL   = 0x4000ull, I_FLG_CAL = 0x2000ull, I_FLG_PSH = 0x2000ull, I_FLG_EXT = 0x1000ull,
+	I_FLG_V     = 0x0800ull, I_FLG_C     = 0x0400ull, I_FLG_Z   = 0x0200ull, I_FLG_N   = 0x0100ull,
+	I_FLG_POP_B = 0x0080ull, I_FLG_POP_A = 0x0040ull, 
+};
+
 static void fix(compile_t *c, uint64_t hole, uint64_t patch) {
 	assert(c);
 	const uint64_t i = (hole - c->start) / sizeof (uint64_t);
@@ -1084,7 +1090,7 @@ static int code(compile_t *c, ast_t *a, scope_t *s) {
 			fix(c, hole1, c->here - c->start);
 		if (code(c, a->as[4], &ns) < 0) /* statement */
 			return -1;
-		/* TODO: emit return */
+		/* TODO: emit return, and generate run only once code */
 		break;
 	}
 	case STATEMENT:
