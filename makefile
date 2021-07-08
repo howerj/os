@@ -12,7 +12,7 @@ os.hex: uc os.p
 as.hex: as.fth
 	gforth $<
 
-os.img: os.hex hx
+%.img: %.hex hx
 	./hx $< $@
 
 clean:

@@ -1,6 +1,7 @@
 \ Richard James Howe, howe.r.j.89@gmail.com, Temporary Assembler, Public Domain
 only forth definitions hex
 1 20 lshift 2* 0= [if] .( 64-bit Forth needed ) cr abort [then]
+1 cells 8 <> [if] .( 64-bit Forth needed ) cr abort [then]
 
 : (order) ( w wid*n n -- wid*n w n )
   dup if
@@ -44,94 +45,70 @@ variable tep size =cell - tep !
    close-file throw ;m
 :m t, there t! =cell tdp +! ;m
 
-\ Instruction flags
-:m fJMP 8000 or ;m
-:m fREL 4000 or ;m
-:m fCAL 2000 or ;m
-:m fPSH 2000 or ;m
-:m fEXT 1000 or ;m
-:m fFV 0800 or ;m
-:m fFC 0400 or ;m
-:m fFZ 0200 or ;m
-:m fFN 0100 or ;m
-:m fPOPB 0080 or ;m
-:m fPOPA 0040 or ;m
+0000000080000000 constant MEMORY_START 
+0000000004000000 constant IO_START     
+0000000008000000 constant IO_END       
+  40 constant TLB_ENTRIES
+  20 constant TRAPS
+2000 constant PAGE_SIZE
+1FFF constant PAGE_MASK
+  10 constant REGS
 
-:m iA  0 or ;m
-:m iB  1 or ;m
-:m iInvA  2 or ;m
-:m iAnd  3 or ;m
-:m iOr  4 or ;m
-:m iXor  5 or ;m
-:m iLshift  6 or ;m
-:m iRshift  7 or ;m
-:m iMul  8 or ;m
-:m iDiv  9 or ;m
-:m iAdc  A or ;m
-:m iAdd  B or ;m
-:m iSbc  C or ;m
-:m iSub  D or ;m
+80000000 constant FLG_V
+40000000 constant FLG_C
+20000000 constant FLG_Z
+10000000 constant FLG_N
 
-:m iPc 20 or ;m
-:m iSPc 21 or ;m
-:m iSp 22 or ;m
-:m iSSp 23 or ;m
-:m iFlg 24 or ;m
-:m iSFlg 25 or ;m
-:m iLvl 26 or ;m
-:m iSLvl 27 or ;m
+ 0 constant ALU_A
+ 1 constant ALU_B
+ 2 constant ALU_INV_A
+ 3 constant ALU_AND
+ 4 constant ALU_OR
+ 5 constant ALU_XOR
+ 6 constant ALU_SHIFT_LEFT
+ 7 constant ALU_SHIFT_RIGHT
+ 8 constant ALU_MUL
+ 9 constant ALU_DIV
+ A constant ALU_ADC
+ B constant ALU_ADD
+ C constant ALU_SBC
+ D constant ALU_SUB
 
-:m iLoadW 30 or ;m
-:m iStoreW 31 or ;m
-:m iLoadB 32 or ;m
-:m iStoreB 33 or ;m
-:m iSignal 34 or ;m
-:m iSSignal 35 or ;m
+20 constant ALU_JUMP
+21 constant ALU_LINK
 
-:m iTrap 36 or ;m
-:m iFlsh1 37 or ;m
-:m iFlshAll 38 or ;m
-:m iTlb 39 or ;m
+30 constant ALU_GET_FLAGS
+31 constant ALU_SET_FLAGS
+32 constant ALU_GET_TRAPS
+33 constant ALU_SET_TRAPS
 
-0000080000000000 constant MEMORY_START 
-0000040000000000 constant IO_START     
-2000             constant PAGE_SIZE
+40 constant ALU_LOAD_WORD
+41 constant ALU_STORE_WORD
+42 constant ALU_LOAD_BYTE
+43 constant ALU_STORE_BYTE
+
+50 constant ALU_TRAP
+51 constant ALU_TLB_SINGLE
+52 constant ALU_TLB_ALL
+53 constant ALU_TLB_SET
+
+1 constant R.OP
+2 constant R.EXT
+4 constant R.REL
 
 :m ins> 0 ;m
-:m >ins 30 lshift swap FFFFFFFFFFFF and or ;m ( op1 op -- instr )
+:m op 30 lshift or ;m
+:m >lit swap FFFFFFFF and or ;m
 
-:m j ins> fJMP >ins t, ;m
-:m jr ins> fEXT fJMP fREL >ins t, ;m
-:m j.z ins> fJMP fFZ >ins t, ;m
-:m jr.z ins> fEXT fJMP fREL fFZ >ins t, ;m
-:m sto ins> iStoreW >ins t, ;m
-:m push ins> fPSH iB >ins t, ;m
-:m -push ins> fPSH fEXT iB >ins t, ;m
-:m add ins> iAdd >ins t, ;m
-:m sub ins> iSub >ins t, ;m
+:m ADD ins> ALU_ADD op t, ;m
+:m LIT ins> R.OP 24 lshift or ALU_A op >lit t, ;m
+:m JMP ;m
+:m STO ins> R.OP 24 lshift or ALU_STORE_WORD op >lit t, ;m
+:m LOD ;m
 
-:m begin there ;m
-:m again there - jr ;m
-:m until there - jr.z ;m
-:m if there 0 t, ;m
-:m then there - ins> fEXT fJMP fREL fFZ >ins there swap t! ;m
-\ :m while if swap ;m
-\ :m repeat ;m
-
-:m halt 1 push IO_START PAGE_SIZE + sto ;m
-:m tron 1 push IO_START PAGE_SIZE + tcell + sto ;m
-
-:m #-1 -1 push ;m
-:m #0   0 push ;m
-
-:m 0= tcell jr.z #-1 #0 ;m
-
-tron
-10 add
-begin
-  2 sub 0=
-until
-halt
+\ 1 LIT IO_START PAGE_SIZE 8 + STO \ TRON
+\ IO_START PAGE_SIZE 0 + STO \ HALT
+0 t,
 
 save-hex as.hex
 bye

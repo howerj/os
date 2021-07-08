@@ -160,22 +160,24 @@ static inline int bit_xor(uint64_t *v, int bit) { assert(v); *v = *v ^  (1ull <<
 static inline int bit_clr(uint64_t *v, int bit) { assert(v); *v = *v & ~(1ull << bit); return 0; }
 static inline int bit_cnd(uint64_t *v, int bit, int set) { assert(v); return (set ? bit_set : bit_clr)(v, bit); }
 
-#define MEMORY_START (0x0000080000000000ull)
+#define MEMORY_START (0x0000000080000000ull)
 #define MEMORY_END   (MEMORY_START + (sizeof (((vm_t) { .pc = 0 }).m)/ sizeof (uint64_t)))
-#define IO_START     (0x0000040000000000ull)
-#define IO_END       (MEMORY_START)
 #define SIZE         (1024ul * 1024ul * 1ul)
 #define TLB_ENTRIES  (64ul)
 #define TRAPS        (32ul)
 #define BUILD_BUG_ON(condition) ((void)sizeof(char[1 - 2*!!(condition)]))
 #define PAGE_SIZE    (8192ull)
 #define PAGE_MASK    (PAGE_SIZE - 1ull)
+#define IO_START     (0x0000000004000000ull)
+#define IO_END       (0x0000000008000000ull)
 #define TLB_ADDR_MASK (0x0000FFFFFFFFFFFFull & ~PAGE_MASK)
 #define NELEMS(X)    (sizeof (X) / sizeof ((X)[0]))
+#define REGS         (16ul)
 
 typedef struct {
 	uint64_t m[SIZE / sizeof (uint64_t)];
-	uint64_t pc, flags, tos, sp, level, timer, tick, signal, tron;
+	uint64_t pc, flags, timer, tick, tron;
+	uint64_t r[REGS];
 	uint64_t traps[TRAPS];
 	uint64_t tlb_va[TLB_ENTRIES], tlb_pa[TLB_ENTRIES];
 	uint64_t disk[SIZE / sizeof (uint64_t)], dbuf[PAGE_SIZE], dstat, dp;
@@ -212,28 +214,28 @@ static int trace(vm_t *v, const char *fmt, ...) {
 
 static int trap(vm_t *v, uint64_t addr, uint64_t val) {
 	assert(v);
-
-	if (trace(v, "+trap,%"PRIx64",%"PRIx64",%"PRIx64",", v->level, addr, val) < 0)
+	if (trace(v, "+trap,%"PRIx64",%"PRIx64",%"PRIx64",", v->flags, addr, val) < 0)
 		return -1;
-
-	if (v->level > 2) {
-		v->halt = -1;
-		return -1;
-	}
-
-	v->level++;
-	v->signal = val;
-	v->flags &= 0xF0F0ull << 48; /* clear saved program counter and saved flags */
-	v->flags |= v->flags >> 4;   /* save flags */
-	v->flags |= v->pc;           /* save program counter */
-	bit_set(&v->flags, PRIV);    /* escalate privilege level */
-
+	uint8_t level = v->flags;
+	const uint64_t a = v->flags >> 8;
+	const uint64_t b = v->flags >> 16;
+	if (level > 2) { v->halt = -1; return -1; }
+	level++;
+	v->flags &= 0xF0F0FFFFFFFFFF00ull; /* clear saved flags */
+	v->flags |= level;
+	const uint64_t f = v->flags & (0xF0F0ull << 48);
+	v->flags |= (f >> 4);
+	v->r[a % REGS] = v->pc;
+	v->r[b % REGS] = val;
+	bit_set(&v->flags, PRIV);   /* escalate privilege level */
 	if (addr >= NELEMS(v->traps))
 		addr = T_ADDR;
 	v->pc = v->traps[addr];
 	return 1;
 }
 
+/* NB. It might be better to start off with a large page size, so everything
+ * can be stored within the TLB without fault. */
 static int tlb_lookup(vm_t *v, uint64_t vaddr, uint64_t *paddr, int rwx) {
 	assert(v);
 	assert(paddr);
@@ -336,24 +338,18 @@ static int load_phy(vm_t *v, uint64_t addr, uint64_t *val) {
 		case IO(2, 0): *val = 0x4; /* bit 3 = RX queue not empty, bit 5 = TX queue not empty */ return 0;
 		case IO(2, 1): *val = v->uart_rx; return 0;
 		case IO(2, 2): *val = v->uart_rx; return 0;
-		/* PAGE 3 = Traps */
-		/* PAGE 4 = Disk Control */
-		case IO(4, 0): *val = v->dstat; return 0;
-		case IO(4, 1): 
+		/* PAGE 3 = Disk Control */
+		case IO(3, 0): *val = v->dstat; return 0;
+		case IO(3, 1): 
 			bit_clr(&v->dstat, 0); /* never busy */
 			bit_clr(&v->dstat, 1); /* do operation always reads 0 */
 			*val = v->dstat & 0x1Full;
 			return 0;
-		/* PAGE 5 = Disk Buffer */
+		/* PAGE 4 = Disk Buffer */
 		}
 
-		if (within(addr, IO(3, 0), IO(3, 0) + (sizeof (v->traps)/sizeof (uint64_t)))) {
-			*val = v->traps[addr - IO(3, 0)];
-			return 0;
-		}
-
-		if (within(addr, IO(5, 0), IO(5, 0) + (sizeof (v->dbuf)/sizeof (uint64_t)))) {
-			*val = v->dbuf[addr - IO(5, 0)];
+		if (within(addr, IO(4, 0), IO(4, 0) + (sizeof (v->dbuf)/sizeof (uint64_t)))) {
+			*val = v->dbuf[addr - IO(4, 0)];
 			return 0;
 		}
 	}
@@ -399,9 +395,8 @@ static int store_phy(vm_t *v, uint64_t addr, uint64_t val) {
 			return 0;
 		case IO(2, 1): v->uart_rx = val; return 0;
 		case IO(2, 2): v->uart_rx = val; return 0;
-		/* PAGE 3 = Traps */
-		/* PAGE 4 = Disk Control */
-		case IO(4, 0): 
+		/* PAGE 3 = Disk Control */
+		case IO(3, 0): 
 			BUILD_BUG_ON((sizeof(v->disk) % sizeof(v->dbuf) != 0));
 			v->dstat = val & 0x1Dull;
 			if (v->dstat & 0x10ull)
@@ -420,17 +415,12 @@ static int store_phy(vm_t *v, uint64_t addr, uint64_t val) {
 				}
 			}
 			return 0;
-		case IO(4, 1): v->dp = val; return 0;
-		/* PAGE 5 = Disk Buffer */
+		case IO(3, 1): v->dp = val; return 0;
+		/* PAGE 4 = Disk Buffer */
 		}
 
-		if (within(addr, IO(3, 0), IO(3, 0) + (sizeof (v->traps)/sizeof (uint64_t)))) {
-			v->traps[addr - IO(3, 0)] = val;
-			return 0;
-		}
-
-		if (within(addr, IO(5, 0), IO(5, 0) + (sizeof (v->dbuf)/sizeof (uint64_t)))) {
-			v->dbuf[addr - IO(5, 0)] = val;
+		if (within(addr, IO(4, 0), IO(4, 0) + (sizeof (v->dbuf)/sizeof (uint64_t)))) {
+			v->dbuf[addr - IO(4, 0)] = val;
 			return 0;
 		}
 	}
@@ -476,135 +466,118 @@ static int storeb(vm_t *v, uint64_t addr, uint8_t val) {
 	return storew(v, addr & ~7ull, orig);
 }
 
-static int push(vm_t *v, uint64_t val) {
-	assert(v);
-	const uint64_t t = v->tos;
-	v->tos = val;
-	const uint64_t loc = v->sp;
-	v->sp -= sizeof (uint64_t);
-	return storew(v, loc, t);
-}
-
-static int pop(vm_t *v, uint64_t *val) {
-	assert(v);
-	assert(val);
-	*val = v->tos;
-	v->sp += sizeof (uint64_t);
-	return loadw(v, v->sp, &v->tos, READ);
-}
-
-/* TODO: This VM needs a lot of working doing to it in order to make it viable,
- * perhaps something more like a P-Code machine might be better. */
 static int cpu(vm_t *v) {
 	assert(v);
 	uint64_t instr = 0, npc = v->pc + sizeof(uint64_t);
 	if (loadw(v, v->pc, &instr, EXECUTE))
-		return 1;
+		goto trapped;
+	const uint32_t op = instr >> 32;
+	const uint32_t op1 = instr & 0xFFFFFFFFul;
+	const uint8_t ras = op;
+	const uint8_t rbs = op >> 8;
+	const uint8_t alu = op >> 16;
+	const uint8_t b = rbs & 7;
+	const uint8_t a = ras & 7;
+	uint64_t rb = v->r[b];
+	uint64_t ra = v->r[a];
+	uint64_t trap_addr = 0;
+	uint64_t trap_val = v->pc;
 
-	const uint16_t op = instr >> (64 - 16);
-	const uint64_t op1 = instr & 0x0000FFFFFFFFFFFFull;
-	uint64_t a = v->tos, b = op1, c = 0;
-	if (trace(v, "+pc,%"PRIx64",%"PRIx64",%"PRIx64",%"PRIx64",%"PRIx64",", v->pc, instr, v->sp, v->tos, op1) < 0)
+	if (trace(v, "+pc,%"PRIx64",%"PRIx64",%"PRIx64",", v->pc, instr, op1) < 0)
 		return -1;
-	if ((op & 0x0800) && !bit_get(v->flags, V))
+	if ((op & 0x80000000ul) && !bit_get(v->flags, V))
 		goto next;
-	if ((op & 0x0400) && !bit_get(v->flags, C))
+	if ((op & 0x40000000ul) && !bit_get(v->flags, C))
 		goto next;
-	if ((op & 0x0200) && !bit_get(v->flags, Z))
+	if ((op & 0x20000000ul) && !bit_get(v->flags, Z))
 		goto next;
-	if ((op & 0x0100) && !bit_get(v->flags, N))
+	if ((op & 0x10000000ul) && !bit_get(v->flags, N))
 		goto next;
-	if (op & 0x0040)
-		if (pop(v, &a))
-			return 1;
-	if (op & 0x0080) /* pop instead of using operand */
-		if (pop(v, &b))
-			return 1;
-	if ((op & 0x1000)) /* extend */
-		if (b & 0x0000800000000000ull)
-			b |= 0xFFFF000000000000ull;
-	if (op & 0x4000) /* relative */
-		b += v->pc;
-	if (op & 0x8000) { /* jump */
-		if (op & 0x2000) /* call */
-			if (push(v, npc))
-				return 1;
-		v->pc = b;
-		return 0; /* !! */
-	}
-	switch (op & 63) {
-	/* Arithmetic */
-	case  0: c = a; break;
-	case  1: c = b; break;
-	case  2: c = ~a; break;
-	case  3: c = a & b; break;
-	case  4: c = a | b; break;
-	case  5: c = a ^ b; break;
-	case  6: c = a << b; break;
-	case  7: c = a >> b; break;
-	case  8: c = a * b; break;
-	case  9: if (!b) return trap(v, T_DIV0, v->pc); c = a / b; break;
-	case 10: a += bit_get(v->flags, C); /* fall-through */
-	case 11: c = a + b; bit_cnd(&v->flags, C, c < a); bit_cnd(&v->flags, V, ((c ^ a) & (c ^ b)) >> 63); break;
-	case 12: a -= bit_get(v->flags, C); /* fall-through */
-	case 13: c = a - b; bit_cnd(&v->flags, C, c > a); bit_cnd(&v->flags, V, ((c ^ a) & (c ^ b)) >> 63); break;
-	/* NB. Could add floating point operations here, only really need addition, multiplication, 
-	 * subtraction and division so long as they set the right flags. */
-	/* Registers */
-	case 32: c = v->pc; break;
-	case 33: npc = b; break;
-	case 34: c = v->sp; break;
-	case 35: v->sp = b; break;
-	case 36: c = v->flags; break;
-	case 37: 
-		if (bit_get(v->flags, PRIV) == 0) { 
-			v->flags &= 0xFFull << 60;
-			v->flags |= (b & ~(0xFFull << 60));
+	uint64_t nra = ra;
+
+	if (ras & 0x1) { ra = op1; }
+	if (ras & 0x2) { ra = ra & 0x0000000080000000ull ? ra | 0xFFFFFFFF00000000ull : ra; }
+	if (ras & 0x4) { ra += v->pc; }
+	if (rbs & 0x1) { rb = op1; }
+	if (rbs & 0x2) { rb = rb & 0x0000000080000000ull ? rb | 0xFFFFFFFF00000000ull : rb; }
+	if (rbs & 0x4) { rb += v->pc; }
+	if (ras & 0x8 || rbs & 0x8) { trap_addr = T_INST; goto on_trap; }
+
+	switch (alu) {
+	case  0: nra = ra; break;
+	case  1: nra = rb; break;
+	case  2: nra = ~ra; break;
+	case  3: nra = ra & rb; break;
+	case  4: nra = ra | rb; break;
+	case  5: nra = ra ^ rb; break;
+	case  6: nra = ra << rb; break;
+	case  7: nra = ra >> rb; break;
+	case  8: nra = ra * rb; break;
+	case  9: if (!rb) { trap_addr = T_DIV0; goto on_trap; } nra = ra / rb; break;
+	case 10: ra += bit_get(v->flags, C); /* fall-through */
+	case 11: nra = ra + rb; bit_cnd(&v->flags, C, nra < ra); bit_cnd(&v->flags, V, ((nra ^ ra) & (nra ^ rb)) >> 63); break;
+	case 12: ra -= bit_get(v->flags, C); /* fall-through */
+	case 13: nra = ra - rb; bit_cnd(&v->flags, C, nra > ra); bit_cnd(&v->flags, V, ((nra ^ ra) & (nra ^ rb)) >> 63); break;
+	/* NB. Need to add floating point instructions, which will also set arithmetic flags */
+
+	case 32: npc = ra; break; /* jump */
+	case 33: nra = npc; npc = ra; break; /* link */
+
+	case 48: nra = v->flags; break;
+	case 49:
+		if (bit_get(v->flags, PRIV) == 0) {
+			v->flags &= ~(0xFull << 52);
+			v->flags |= (ra & (0xFull << 52));
 			break;
 		}
-		v->flags = b;
+		v->flags = ra;
 		break;
-	case 38: c = v->level; break;
-	case 39:
-		 if (bit_get(v->flags, PRIV) == 0)
-			 return trap(v, T_PRIV, v->pc);
-		 v->level = b;
-		 break;
-	case 40: c = v->signal; break;
-	case 41: v->signal = c; break;
-	/* Load/Store */
-	case 48: if (loadw(v, b, &c, READ)) return 1; break;
-	case 49: if (storew(v, b, a)) return 1; break;
-	case 50: { uint8_t cb = 0; if (loadb(v, b, &cb)) return 1; c = cb; } break;
-	case 51: if (storeb(v, b, a)) return 1; break;
-	/* Misc */
-	case 52: return trap(v, b, a);
-	case 53: if (tlb_flush_single(v, b, &c)) return 1; break;
-	case 54: if (tlb_flush_all(v)) return 1; break;
-	case 55: {
-		if (bit_get(v->flags, PRIV) == 0) 
-			return trap(v, T_PRIV, v->pc);
-		const int va = bit_get(a, 15);
-		bit_clr(&a, 15);
-		if (a > NELEMS(v->tlb_va))
-			return trap(v, T_INST, v->pc);
-		if (va) v->tlb_va[a] = b; else v->tlb_pa[a] = b;
+	case 50: nra = v->traps[ra % TRAPS]; break;
+	case 51:
+		if (bit_get(v->flags, PRIV) == 0) {
+			trap_addr = T_PRIV;
+			goto on_trap;
+		}
+		v->traps[ra % TRAPS] = rb;
+		break;
+	case 64: if (loadw(v, ra, &nra, READ)) goto trapped; break;
+	case 65: if (storew(v, ra, rb)) goto trapped; break;
+	case 66: { uint8_t byte = 0; if (loadb(v, ra, &byte)) goto trapped; nra = byte; } break;
+	case 67: if (storeb(v, ra, rb)) goto trapped; break;
+
+	case 80: trap_addr = ra; trap_val = rb; goto on_trap;
+	case 81: if (tlb_flush_single(v, ra, &nra)) goto on_trap; break;
+	case 82: if (tlb_flush_all(v)) goto trapped; break;
+	case 83: {
+		if (bit_get(v->flags, PRIV) == 0) { 
+			trap_addr = T_PRIV; 
+			goto on_trap; 
+		}
+		const int va = bit_get(ra, 15);
+		bit_clr(&nra, 15);
+		if (nra > NELEMS(v->tlb_va)) { 
+			trap_addr = T_INST; 
+			goto on_trap; 
+		}
+		if (va) v->tlb_va[ra] = rb; else v->tlb_pa[ra] = rb;
 		}
 		break;
-	default: return trap(v, T_INST, v->pc);
+	default:
+		trap_addr = T_INST;
 	}
 
-	v->tos = c;
-	if (op & 0x2000)
-		if (push(v, c))
-			return 1;
-	if (c == 0)
+	v->r[a] = nra;
+	if (nra == 0)
 		bit_set(&v->flags, Z);
-	if ((c & (1ull << 63)))
+	if ((nra & (1ull << 63)))
 		bit_set(&v->flags, N);
 next:
 	v->pc = npc;
 	return 0;
+on_trap:
+	return trap(v, trap_addr, trap_val);
+trapped:
+	return 1;
 }
 
 static int interrupt(vm_t *v) {
@@ -631,7 +604,8 @@ static int run(vm_t *v, uint64_t step) {
 }
 
 int main(int argc, char **argv) {
-	static vm_t v = { .pc = MEMORY_START, .sp = MEMORY_START + PAGE_SIZE, };
+	static vm_t v;
+	v.pc = MEMORY_START;
 	v.trace = stderr;
 	if (argc != 3)
 		return 1;
