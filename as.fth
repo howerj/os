@@ -45,9 +45,9 @@ variable tep size =cell - tep !
    close-file throw ;m
 :m t, there t! =cell tdp +! ;m
 
-0000000080000000 constant MEMORY_START 
-0000000004000000 constant IO_START     
-0000000008000000 constant IO_END       
+0000000080000000 constant MEMORY_START
+0000000004000000 constant IO_START
+0000000008000000 constant IO_END
   40 constant TLB_ENTRIES
   20 constant TRAPS
 2000 constant PAGE_SIZE

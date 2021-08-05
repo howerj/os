@@ -283,9 +283,9 @@ again:
 		if (i >= max)
 			return warn(c, "identifier %s... too long (%d bytes)", c->buf, i);
 		c->buf[i + 1] = '\0';
-		for (size_t i = IF; i < NELEMS(keywords); i++) {
-			if (!strcmp(c->buf, keywords[i])) {
-				c->type = i;
+		for (size_t j = IF; j < NELEMS(keywords); j++) {
+			if (!strcmp(c->buf, keywords[j])) {
+				c->type = j;
 				goto unget;
 			}
 		}

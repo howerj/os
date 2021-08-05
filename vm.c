@@ -1,7 +1,8 @@
 /* Richard James Howe, howe.r.j.89@gmail.com, Virtual Machine, Public Domain */
 /* TODO: Networking (debug)
  * TODO: Screen/Keyboard/Mouse/Sound
- * TODO: Floating point */
+ * TODO: Floating point
+ * TODO: Misc: Forth/BIOS ROM, Device/Peripheral discovery/description table, debugging */
 #include <assert.h>
 #include <limits.h>
 #include <inttypes.h>
