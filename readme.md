@@ -45,4 +45,8 @@ This is a work in progress/collection of documents.
   <https://people.inf.ethz.ch/wirth/ProjectOberon/> 
 - P-Code <https://en.wikipedia.org/wiki/P-code_machine>
 - RISC-V OS in Rust <http://osblog.stephenmarz.com/index.html>
-- SQLite Clone <https://cstack.github.io/db_tutorial/>, <https://github.com/cstack/db_tutorial>
+- SQLite Clone <https://cstack.github.io/db_tutorial/>, <https://github.com/cstack/db_tutorial>,
+  <https://blog.pankajtanwar.in/how-database-indexing-actually-works-internally>,
+  <https://notes.eatonphil.com/database-basics-indexes.html>
+- GitFs, an interesting use of Git <https://github.com/Presslabs/gitfs>, to
+  provide a synchronized and versioned file system that can have multiple views
