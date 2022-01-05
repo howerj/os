@@ -127,6 +127,8 @@ so it can be used in a cooperative multithreaded program.
   <https://dl.acm.org/doi/pdf/10.1145/3317550.3321445>
 * More xv6 <https://news.ycombinator.com/item?id=17592560>
   <https://pdos.csail.mit.edu/6.828/2017/xv6.html>
+* QOI image format <https://qoiformat.org/>, a simple
+  image format.
 
 Additional system calls:
 
