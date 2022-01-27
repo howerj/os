@@ -129,6 +129,11 @@ so it can be used in a cooperative multithreaded program.
   <https://pdos.csail.mit.edu/6.828/2017/xv6.html>
 * QOI image format <https://qoiformat.org/>, a simple
   image format.
+* A file system built on top of SQLite:
+  - <https://www.codeproject.com/Articles/336112/Simple-file-system-over-SQLite>
+  - And another <https://github.com/guardianproject/libsqlfs>
+* SQLite design docs
+  - https://www.sqlite.org/vfs.html
 
 Additional system calls:
 
@@ -391,6 +396,23 @@ it would make utilities that deal with files in bulk less brittle.
 * Bittorrent replacement with online code/rateless erasure code, and other
   peer-to-peer stuff for serving web-content.
 * Image formats; FLIF? <https://flif.info/>
+* S-expressions/sexprs could be used as a replacement for structured tree like
+  data, if needed. A S-expression based version of the web might be better,
+  instead of HTML, which is much, much, more difficult to parse, as is XML.
+  This would lend itself to manipulation by a lisp interpreter.
+* The graphical shell could be written in a smalltalk like language perhaps,
+  the idea should be noted, but probably not implemented. Some of smalltalks
+  weaknesses is that it is slow, garbage collected and image based, no wonder
+  it lost out to Unix, but it has some good ideas, such as a modifiable interface
+  that can be drilled down into and extended however the user likes.
+  - <https://en.wikipedia.org/wiki/Smalltalk>
+* Plan 9/Limbo/Inferno are some other interesting operating systems...
+  - <https://en.wikipedia.org/wiki/Limbo_(programming_language)>
+  - <https://en.wikipedia.org/wiki/Inferno_(operating_system)>
+  - <https://en.wikipedia.org/wiki/Plan_9_from_Bell_Labs>
+* A small prolog engine might be of use, see:
+  - <https://github.com/ichiban/prolog>
+  - <https://stackoverflow.com/questions/14527682/implementing-prolog-in-c-or-c>
 
 ### CPU Design
 
@@ -432,6 +454,17 @@ put massive costs on the server in terms of both bandwidth and storage, the
 consumers of the content would provide a bit of their storage and bandwidth to
 peers when accessing a Uniform Resource Name. This needs to be integrated into
 the browser for it to work. This is certainly not a trivial task!
+
+
+### Alternative VM implementation
+
+The virtual machine is going to be an integral part of the system at all
+levels, for reasons mentioned, it would be good to get it right the first time.
+
+Some alternative implementations might be good to explore, perhaps a 64-bit
+simpler byte code interpreter, or an instruction set based off of instructions
+that can be directly represented in ASCII (which would be wasteful, but
+interesting). 
 
 ## Misc Notes
 

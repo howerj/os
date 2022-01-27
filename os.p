@@ -7,6 +7,8 @@ TODO
 	- basic code generation
 	- make a useful test program
 	- make a vim syntax file for this
+	- Remove implicit type
+	- cleanup grammar, actually decide on it...
 *)
 
 module test;

@@ -1,4 +1,5 @@
-\ Richard James Howe, howe.r.j.89@gmail.com, Temporary Assembler, Public Domain
+\ Richard James Howe, howe.r.j.89@gmail.com, 
+\ Temporary Assembler, Public Domain
 only forth definitions hex
 1 20 lshift 2* 0= [if] .( 64-bit Forth needed ) cr abort [then]
 1 cells 8 <> [if] .( 64-bit Forth needed ) cr abort [then]
@@ -38,10 +39,13 @@ variable tep size =cell - tep !
 :m tc@ tflash + c@ ;m
 :m t! tflash + ! ;m
 :m t@ tflash + @ ;m
-:m hex# ( u -- addr len ) 0 <# base @ >r hex =lf hold #S r> base ! #> ;m
+:m hex# ( u -- addr len ) 
+   0 <# base @ >r hex =lf hold #S r> base ! #> ;m
 :m save-hex ( <name> -- )
   parse-word w/o create-file throw
-  there 0 ?do i t@  over >r hex# r> write-file throw tcell +loop
+  there 0 ?do 
+    i t@  over >r hex# r> write-file throw tcell 
+  +loop
    close-file throw ;m
 :m t, there t! =cell tdp +! ;m
 

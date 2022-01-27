@@ -2,7 +2,8 @@
 /* TODO: Networking (debug)
  * TODO: Screen/Keyboard/Mouse/Sound
  * TODO: Floating point
- * TODO: Misc: Forth/BIOS ROM, Device/Peripheral discovery/description table, debugging */
+ * TODO: Misc: Forth/BIOS ROM, Device/Peripheral discovery/description table, debugging
+ * TODO: Describe alternatives/Design decisions; ASCII-based 64-bit VM, simpler CPU, p-code machine */
 #include <assert.h>
 #include <limits.h>
 #include <inttypes.h>
@@ -477,8 +478,8 @@ static int cpu(vm_t *v) {
 	const uint8_t ras = op;
 	const uint8_t rbs = op >> 8;
 	const uint8_t alu = op >> 16;
-	const uint8_t b = rbs & 7;
-	const uint8_t a = ras & 7;
+	const uint8_t b = rbs & 15;
+	const uint8_t a = ras & 15;
 	uint64_t rb = v->r[b];
 	uint64_t ra = v->r[a];
 	uint64_t trap_addr = 0;
@@ -626,3 +627,4 @@ int main(int argc, char **argv) {
 		return 6;
 	return 0;
 }
+
